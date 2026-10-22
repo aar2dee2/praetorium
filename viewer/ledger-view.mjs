@@ -2,49 +2,77 @@
 // No dependencies. Reads the state-<session>.json files the mod writes; sends what
 // you do back through that session's inbox-<session>.jsonl.
 // Usage: node ledger-view.mjs [dir] [session-id to select first]
+//        node ledger-view.mjs --diff <snapshot or ''> <file>
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 
-const dir = process.argv[2] ?? '/tmp/claude-ledger'
+const isWindows = process.platform === 'win32'
+
+if (process.argv[2] === '--diff') {
+  showDiff(process.argv[3], process.argv[4])
+  process.exit(0)
+}
+
+const dir = process.argv[2] || path.join(os.tmpdir(), 'praetorium')
 let cur = process.argv[3] ?? ''
 const sessions = new Map() // id -> { state, mtime }
 const WEEK = 7 * 24 * 3600 * 1000
 const inboxFile = () => path.join(dir, `inbox-${cur}.jsonl`)
 
-// Telborg tokens (telborg_news/design.md).
-const PALETTE = {
+// Graphite, the default theme; a session's own theme replaces it.
+const FALLBACK = {
   dark: {
-    bg: '#0a0a0a', surface: '#121212', surface2: '#1f1f1f', border: '#292929',
-    text: '#e2e8f0', text2: '#9d9d9d', text3: '#5d5d5d',
-    lime: '#c3f73a', lav: '#af74fb', rose: '#f45286', amber: '#f5a623',
-    limeDim: '#2b3218', lavDim: '#282033', roseDim: '#321b22', amberDim: '#322714', mutedDim: '#1f1f1f',
+    bg: '#0d0f12', surface: '#14171c', surface2: '#1c2027', border: '#2a2f38',
+    text: '#e6e8eb', text2: '#a0a6b0', text3: '#6b7280',
+    done: '#34d399', active: '#818cf8', warn: '#fbbf24', danger: '#f87171',
   },
   light: {
-    bg: '#fafaf7', surface: '#ffffff', surface2: '#f1f1ec', border: '#e2e2dc',
-    text: '#111111', text2: '#3f3f3f', text3: '#6a6a6a',
-    lime: '#4a6b08', lav: '#6b21d4', rose: '#c81e5b', amber: '#a16207',
-    limeDim: '#e9ede1', lavDim: '#ede4fa', roseDim: '#f8e4eb', amberDim: '#f4ece1', mutedDim: '#f1f1ec',
+    bg: '#f8f9fb', surface: '#ffffff', surface2: '#f0f2f5', border: '#e3e6ea',
+    text: '#111418', text2: '#3d434c', text3: '#6b7280',
+    done: '#047857', active: '#4f46e5', warn: '#b45309', danger: '#b91c1c',
   },
 }
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
+const mix = (fg, bg, a) => '#' + rgb(fg).map((c, i) => Math.round(rgb(bg)[i] + (c - rgb(bg)[i]) * a).toString(16).padStart(2, '0')).join('')
+
+// Full colour where the terminal says it has it; the nearest of 256 elsewhere (Apple Terminal, older consoles).
+const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM ?? '') ||
+  ['iTerm.app', 'WezTerm', 'ghostty', 'vscode', 'WarpTerminal'].includes(process.env.TERM_PROGRAM ?? '') ||
+  Boolean(process.env.WT_SESSION || process.env.KITTY_WINDOW_ID)
+function to256(hex) {
+  const [r, g, b] = rgb(hex)
+  const level = c => (c < 48 ? 0 : c < 115 ? 1 : Math.floor((c - 35) / 40))
+  const cube = 16 + 36 * level(r) + 6 * level(g) + level(b)
+  const grey = Math.round(((r + g + b) / 3 - 8) / 10)
+  const greyIdx = 232 + Math.max(0, Math.min(23, grey))
+  const dist = (x, y, z) => (r - x) ** 2 + (g - y) ** 2 + (b - z) ** 2
+  const steps = [0, 95, 135, 175, 215, 255]
+  const cubeRgb = [level(r), level(g), level(b)].map(l => steps[l])
+  const greyVal = 8 + 10 * (greyIdx - 232)
+  return dist(...cubeRgb) <= dist(greyVal, greyVal, greyVal) ? cube : greyIdx
+}
+const fgCode = hex => (TRUECOLOR ? `\x1b[38;2;${rgb(hex).join(';')}m` : `\x1b[38;5;${to256(hex)}m`)
+const bgCode = hex => (TRUECOLOR ? `\x1b[48;2;${rgb(hex).join(';')}m` : `\x1b[48;5;${to256(hex)}m`)
 
 const STATUS = {
   captured: ['Not started', 'muted'],
-  in_progress: ['In progress', 'lav'],
-  implemented: ['Implemented, not verified', 'amber'],
-  verified: ['Verified', 'lime'],
-  blocked: ['Blocked', 'rose'],
-  needs_clarification: ['Needs clarification', 'amber'],
+  in_progress: ['In progress', 'active'],
+  implemented: ['Implemented, not verified', 'warn'],
+  verified: ['Verified', 'done'],
+  blocked: ['Blocked', 'danger'],
+  needs_clarification: ['Needs clarification', 'warn'],
   deferred: ['Deferred', 'muted'],
 }
 const KIND = {
   discovery: ['Discovery', 'muted'],
-  plan: ['Plan', 'lav'],
-  code: ['Code change', 'lav'],
+  plan: ['Plan', 'active'],
+  code: ['Code change', 'active'],
   command: ['Command', 'muted'],
-  test: ['Test', 'amber'],
-  message: ['Agent', 'lav'],
+  test: ['Test', 'warn'],
+  message: ['Agent', 'active'],
 }
 const DELIVERY = {
   kept: 'comment, not sent',
@@ -62,7 +90,7 @@ const MODES = {
 
 const EMPTY = { reqs: [], events: [], replies: [], editors: [], isWorking: false, title: '', project: '' }
 let S = EMPTY
-let dark = true
+let darkOverride = null // 'l' flips the session's own mode for this window
 let focus = 'reqs' // 'sessions' | 'reqs' | 'activity'
 let showAll = false
 const sel = { sessions: 0, reqs: 0, activity: 0 }
@@ -73,8 +101,11 @@ let seq = Date.now()
 // ---------- drawing ----------
 
 const out = process.stdout
-const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(';')
-const pal = () => (dark ? PALETTE.dark : PALETTE.light)
+const isDark = () => darkOverride ?? S.dark ?? true
+const pal = () => {
+  const t = { ...(isDark() ? FALLBACK.dark : FALLBACK.light), ...((isDark() ? S.theme?.dark : S.theme?.light) ?? {}) }
+  return { ...t, mutedDim: t.surface2, ...Object.fromEntries(['done', 'active', 'warn', 'danger'].map(k => [`${k}Dim`, mix(t[k], t.surface, 0.14)])) }
+}
 const tone = (t, dim) => (t === 'muted' ? (dim ? pal().mutedDim : pal().text3) : pal()[dim ? `${t}Dim` : t])
 
 // A line is a list of segments: [text, fg, bg?, bold?]
@@ -89,9 +120,9 @@ function paint(line, w, rowBg) {
     const chars = [...text.replace(/[\n\r\t]/g, ' ')]
     const part = chars.length > left ? `${chars.slice(0, Math.max(0, left - 1)).join('')}…` : chars.join('')
     left -= [...part].length
-    str += `\x1b[38;2;${hex(fg ?? pal().text)}m\x1b[48;2;${hex(bg ?? rowBg)}m${bold ? '\x1b[1m' : ''}${part}\x1b[22m`
+    str += `${fgCode(fg ?? pal().text)}${bgCode(bg ?? rowBg)}${bold ? '\x1b[1m' : ''}${part}\x1b[22m`
   }
-  return `${str}\x1b[48;2;${hex(rowBg)}m${' '.repeat(Math.max(0, left))}`
+  return `${str}${bgCode(rowBg)}${' '.repeat(Math.max(0, left))}`
 }
 
 function wrap(text, w, fg, indent = '') {
@@ -147,10 +178,10 @@ function sessionLines(w) {
     const isSel = focus === 'sessions' && isCur
     const L = st.reqs.filter(r => r.status !== 'deferred')
     const v = L.filter(r => r.status === 'verified' && !r.needsReverify).length
-    const dot = st.isWorking ? seg('● ', p.lav) : st.hasEnded ? seg('· ', p.text3) : seg('○ ', p.text3)
+    const dot = st.isWorking ? seg('● ', p.active) : st.hasEnded ? seg('· ', p.text3) : seg('○ ', p.text3)
     lines.push({ sel: isSel || isCur, line: [dot, seg(st.project || 'session', isCur ? p.text : p.text2, undefined, isCur)] })
     lines.push({ sel: isSel || isCur, line: [seg('  '), seg(st.title || 'No prompt yet', p.text3)] })
-    lines.push({ sel: isSel || isCur, line: [seg('  '), seg(`${v}/${L.length} verified`, v === L.length && L.length ? p.lime : p.text3)] })
+    lines.push({ sel: isSel || isCur, line: [seg('  '), seg(`${v}/${L.length} verified`, v === L.length && L.length ? p.done : p.text3)] })
     lines.push([])
   })
   if (!list.length) lines.push(...wrap('No sessions are running the ledger mod yet.', w, p.text3))
@@ -162,9 +193,9 @@ function reqLines(w) {
   const lines = [[seg(`REQUIREMENTS  ${S.reqs.length}`, p.text2, undefined, true)], []]
   if (!S.reqs.length) lines.push(...wrap('Tagged from your prompts by Haiku as you send them.', w, p.text3))
   S.reqs.forEach((r, i) => {
-    const [label, t] = r.needsReverify ? ['Re-verify', 'amber'] : STATUS[r.status]
+    const [label, t] = r.needsReverify ? ['Re-verify', 'warn'] : STATUS[r.status]
     const isSel = focus === 'reqs' && i === sel.reqs
-    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', p.lav), seg(`${r.id} `, p.text3), chip(label, t), seg(' '), seg(r.title, isSel ? p.text : p.text, undefined, isSel)] })
+    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', p.active), seg(`${r.id} `, p.text3), chip(label, t), seg(' '), seg(r.title, isSel ? p.text : p.text, undefined, isSel)] })
   })
   return lines
 }
@@ -181,9 +212,9 @@ function activityLines(w) {
     lines.push({
       sel: isSel,
       line: [
-        seg(isSel ? '› ' : '  ', p.lav), seg(`${hhmm(ev.at)} `, p.text3), seg(`${label} `, tone(t)),
+        seg(isSel ? '› ' : '  ', p.active), seg(`${hhmm(ev.at)} `, p.text3), seg(`${label} `, tone(t)),
         seg(ev.title, p.text, undefined, isSel),
-        ...(ev.state === 'failed' ? [seg('  failed', p.rose)] : ev.state === 'running' ? [seg('  running', p.lav)] : []),
+        ...(ev.state === 'failed' ? [seg('  failed', p.danger)] : ev.state === 'running' ? [seg('  running', p.active)] : []),
         ...(n ? [seg(`  · ${n} repl${n === 1 ? 'y' : 'ies'}`, p.text3)] : []),
       ],
     })
@@ -197,7 +228,7 @@ function detailLines(w) {
   if (focus === 'reqs') {
     const r = S.reqs[sel.reqs]
     if (r) {
-      const [label, t] = r.needsReverify ? ['Needs re-verification', 'amber'] : STATUS[r.status]
+      const [label, t] = r.needsReverify ? ['Needs re-verification', 'warn'] : STATUS[r.status]
       lines.push([seg(r.id + ' ', p.text3), chip(label, t)], ...wrap(r.title, w, p.text), [])
       for (const h of r.history) {
         lines.push([seg(`${hhmm(h.at)} ${h.kind === 'original' ? 'Asked' : 'Refined'}${h.by === 'agent' ? ' (agent)' : ''}`, p.text3)])
@@ -207,9 +238,9 @@ function detailLines(w) {
       if (!r.evidence.length) lines.push([seg('No evidence yet.', p.text3)])
       for (const e of r.evidence) {
         const good = e.kind === 'test' || e.kind === 'manual'
-        lines.push(...wrap(`${e.kind === 'test' ? 'Passed: ' : e.kind === 'manual' ? 'Accepted by you: ' : 'Note: '}${e.text}`, w, good ? p.lime : p.text2))
+        lines.push(...wrap(`${e.kind === 'test' ? 'Passed: ' : e.kind === 'manual' ? 'Accepted by you: ' : 'Note: '}${e.text}`, w, good ? p.done : p.text2))
       }
-      lines.push([], [seg('a', p.lav, undefined, true), seg(' accept  ', p.text3), seg('d', p.lav, undefined, true), seg(' defer  ', p.text3), seg('f', p.lav, undefined, true), seg(' refine', p.text3)])
+      lines.push([], [seg('a', p.active, undefined, true), seg(' accept  ', p.text3), seg('d', p.active, undefined, true), seg(' defer  ', p.text3), seg('f', p.active, undefined, true), seg(' refine', p.text3)])
     }
   } else {
     const ev = shownEvents()[sel.activity]
@@ -221,18 +252,18 @@ function detailLines(w) {
       const thread = S.replies.filter(r => r.eventId === ev.id)
       if (thread.length) lines.push([])
       for (const r of thread) {
-        lines.push([seg(`You ${hhmm(r.at)}`, p.text3), seg(`  ${DELIVERY[r.delivery]}`, r.delivery === 'failed' ? p.rose : r.delivery === 'kept' ? p.text3 : p.lav)])
+        lines.push([seg(`You ${hhmm(r.at)}`, p.text3), seg(`  ${DELIVERY[r.delivery]}`, r.delivery === 'failed' ? p.danger : r.delivery === 'kept' ? p.text3 : p.active)])
         lines.push(...wrap(r.text, w, p.text2, '  '))
       }
       lines.push([], [
-        seg('c', p.lav, undefined, true), seg(' comment  ', p.text3),
-        seg('n', p.lav, undefined, true), seg(' new requirement  ', p.text3),
-        seg('i', p.lav, undefined, true), seg(' instruct agent', p.text3),
+        seg('c', p.active, undefined, true), seg(' comment  ', p.text3),
+        seg('n', p.active, undefined, true), seg(' new requirement  ', p.text3),
+        seg('i', p.active, undefined, true), seg(' instruct agent', p.text3),
       ])
       if (ev.kind === 'code' && ev.file) {
         lines.push([
-          ...(S.editors[0] ? [seg('o', p.lav, undefined, true), seg(` diff in ${S.editors[0].name}  `, p.text3)] : []),
-          seg('t', p.lav, undefined, true), seg(' diff here', p.text3),
+          ...(S.editors[0] ? [seg('o', p.active, undefined, true), seg(` diff in ${S.editors[0].name}  `, p.text3)] : []),
+          seg('t', p.active, undefined, true), seg(' diff here', p.text3),
         ])
       }
     }
@@ -242,10 +273,10 @@ function detailLines(w) {
   const verified = L.filter(isVerified).length
   const gaps = L.filter(r => gapOf(r))
   lines.push([], [seg('COMPLETION AUDIT', p.text2, undefined, true)])
-  lines.push([seg(`Accounted ${L.filter(r => r.status !== 'captured').length}/${L.length}`, p.text), seg('   '), seg(`Verified ${verified}/${L.length}`, p.lime)])
+  lines.push([seg(`Accounted ${L.filter(r => r.status !== 'captured').length}/${L.length}`, p.text), seg('   '), seg(`Verified ${verified}/${L.length}`, p.done)])
   lines.push(...wrap("The agent saying it's done doesn't count: verified needs a passing check or your acceptance.", w, p.text3))
-  for (const r of gaps) lines.push([seg(`${r.id} `, p.text3), seg(gapOf(r), p.amber)])
-  if (gaps.length) lines.push([seg('g', p.lav, undefined, true), seg(` ask agent to close ${gaps.length} gap${gaps.length === 1 ? '' : 's'}`, p.text3)])
+  for (const r of gaps) lines.push([seg(`${r.id} `, p.text3), seg(gapOf(r), p.warn)])
+  if (gaps.length) lines.push([seg('g', p.active, undefined, true), seg(` ask agent to close ${gaps.length} gap${gaps.length === 1 ? '' : 's'}`, p.text3)])
   return lines
 }
 
@@ -266,8 +297,8 @@ function render() {
   rows.push({ line: [
     seg(' Ledger ', p.text, undefined, true),
     seg(` ${S.project || ''}${S.title ? ` · ${S.title}` : ''}`, p.text2),
-    seg(`   ${L.length} requirements · `, p.text2), seg(`${verified} verified`, p.lime), seg(` · ${L.length - verified} open`, p.text2),
-    seg('   agent ', p.text3), S.isWorking ? seg('● working', p.lav) : seg('○ idle', p.text3),
+    seg(`   ${L.length} requirements · `, p.text2), seg(`${verified} verified`, p.done), seg(` · ${L.length - verified} open`, p.text2),
+    seg('   agent ', p.text3), S.isWorking ? seg('● working', p.active) : seg('○ idle', p.text3),
   ] })
   rows.push({ line: [] })
 
@@ -304,12 +335,12 @@ function render() {
   if (compose) {
     const mode = MODES[compose.mode] + (compose.mode === 'refine' ? ` ${compose.refines}` : '')
     footer = [
-      chip(mode, compose.mode === 'comment' ? 'muted' : 'lav'),
-      ...(compose.mode === 'comment' ? [] : [seg('  '), compose.interrupt ? chip('interrupt first', 'rose') : seg('ctrl-t interrupt first', p.text3)]),
-      seg('  › ', p.lav), seg(compose.text + '▏', p.text),
+      chip(mode, compose.mode === 'comment' ? 'muted' : 'active'),
+      ...(compose.mode === 'comment' ? [] : [seg('  '), compose.interrupt ? chip('interrupt first', 'danger') : seg('ctrl-t interrupt first', p.text3)]),
+      seg('  › ', p.active), seg(compose.text + '▏', p.text),
     ]
   } else {
-    footer = [seg(flash || 'tab switch column · ↑↓ move · [ ] session · v all/key events · g close gaps · l light/dark · q quit', flash ? p.lav : p.text3)]
+    footer = [seg(flash || 'tab switch column · ↑↓ move · [ ] session · v all/key events · g close gaps · l light/dark · q quit', flash ? p.active : p.text3)]
   }
   rows.push({ line: [] }, { line: [seg('─'.repeat(W), p.border)] }, { line: footer })
 
@@ -371,20 +402,19 @@ function send(cmd, note) {
 }
 
 function openDiff(ev, here) {
-  const snap = path.join(S.snapDir ?? '/tmp/claude-ledger', `${ev.id}-${path.basename(ev.file)}`)
+  const snap = path.join(S.snapDir ?? dir, `${ev.id}-${path.basename(ev.file)}`)
   const hasSnap = fs.existsSync(snap)
   if (!here) {
     const ed = S.editors[0]
     if (!ed) return
-    spawn(ed.bin, hasSnap ? ['--diff', snap, ev.file] : ['-g', ev.file], { detached: true, stdio: 'ignore' }).unref()
+    const args = hasSnap ? ['--diff', snap, ev.file] : ['-g', ev.file]
+    spawn(ed.bin, args, { detached: true, stdio: 'ignore', shell: isWindows }).unref()
     flash = `Opened in ${ed.name}`
     return render()
   }
   out.write('\x1b[?1049l\x1b[?25h')
   process.stdin.setRawMode(false)
-  const args = hasSnap ? ['--no-pager', 'diff', '--no-index', '--color=always', '--', snap, ev.file] : ['--no-pager', '-C', path.dirname(ev.file), 'diff', '--color=always', '--', ev.file]
-  const diff = spawnSync('git', args, { encoding: 'utf8' })
-  spawnSync('less', ['-R'], { input: diff.stdout || 'No changes.\n', stdio: ['pipe', 'inherit', 'inherit'] })
+  showDiff(hasSnap ? snap : '', ev.file)
   process.stdin.setRawMode(true)
   out.write('\x1b[?1049h\x1b[?25l')
   render()
@@ -429,7 +459,7 @@ function onKey(k) {
     case '\x1b[A': case 'k': if (focus === 'sessions') return switchSession(-1); sel[focus] = Math.max(0, sel[focus] - 1); break
     case '\x1b[B': case 'j': if (focus === 'sessions') return switchSession(1); sel[focus] = Math.min((focus === 'reqs' ? S.reqs.length : evs.length) - 1, sel[focus] + 1); break
     case 'v': showAll = !showAll; sel.activity = 0; break
-    case 'l': dark = !dark; break
+    case 'l': darkOverride = !isDark(); break
     case 'g': send({ type: 'gaps' }, 'Asked the agent to close the gaps'); return
     case 'a': if (focus === 'reqs' && req) return send({ type: 'accept', reqId: req.id }, `${req.id} accepted as verified`); break
     case 'd': if (focus === 'reqs' && req) return send({ type: 'defer', reqId: req.id }, `${req.id} deferred`); break
@@ -461,3 +491,27 @@ process.on('SIGTERM', quit)
 setInterval(scan, 500)
 scan()
 render()
+
+function gitDiff(snap, file) {
+  const args = snap
+    ? ['--no-pager', 'diff', '--no-index', '--color=always', '--', snap, file]
+    : ['--no-pager', '-C', path.dirname(file), 'diff', '--color=always', '--', file]
+  const r = spawnSync('git', args, { encoding: 'utf8' })
+  if (r.error) return `git was not found, so the diff cannot be shown.\n`
+  return r.stdout || 'No changes.\n'
+}
+
+// Shows a diff in this terminal: through less where it exists, else printed with a key to close.
+function showDiff(snap, file) {
+  const text = gitDiff(snap, file)
+  const canPage = !isWindows && process.env.TERM && process.env.TERM !== 'dumb'
+  if (canPage && !spawnSync('less', ['-R'], { input: text, stdio: ['pipe', 'inherit', 'inherit'] }).error) return
+  process.stdout.write(text + '\n\x1b[2mPress any key to close.\x1b[0m')
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true)
+    const buf = Buffer.alloc(8)
+    try { fs.readSync(0, buf, 0, 8, null) } catch { /* closed */ }
+    process.stdin.setRawMode(false)
+  }
+  process.stdout.write('\n')
+}

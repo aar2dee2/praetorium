@@ -71,9 +71,29 @@ export type View = {
   dark: boolean
 }
 
+export type ThemeTokens = {
+  bg: string
+  surface: string
+  surface2: string
+  border: string
+  text: string
+  text2: string
+  text3: string
+  done: string
+  active: string
+  warn: string
+  danger: string
+}
+
+export type Theme = {
+  name: string
+  dark: ThemeTokens
+  light: ThemeTokens
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    ledger: {
+    praetorium: {
       reqs: Requirement[]
       events: ActivityEvent[]
       replies: Reply[]
@@ -81,6 +101,7 @@ declare module 'claude-code' {
       turnId: string
       inboxSeq: number
       title: string
+      theme: Theme
     }
   }
 }

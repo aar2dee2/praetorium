@@ -1,0 +1,16 @@
+{
+  "name": "praetorium",
+  "owner": {
+    "name": "aar2dee2"
+  },
+  "plugins": [
+    {
+      "name": "praetorium",
+      "source": "./",
+      "description": "Requirements ledger, activity stream and completion audit for Claude Code"
+    }
+  ],
+  "metadata": {
+    "description": "Praetorium: requirements ledger, activity stream and completion audit for Claude Code"
+  }
+}

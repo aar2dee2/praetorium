@@ -10,7 +10,7 @@ const PANE = {
 describe('ledger', () => {
   test('pane draws all three tabs on desktop and terminal', async $ => {
     for (const surface of ['desktop', 'terminal'] as const) {
-      const ui = await $.ui.mount({ plugin: 'ledger', surface, ...PANE } as never)
+      const ui = await $.ui.mount({ plugin: 'praetorium', surface, ...PANE } as never)
       expect(await ui.find({ type: 'Text', text: /Requirements are tagged/ })).toBeDefined()
       await ui.press({ key: 'tab-activity' })
       expect(await ui.find({ type: 'Text', text: /No activity yet/ })).toBeDefined()
@@ -26,7 +26,7 @@ describe('ledger wide', () => {
   test('wide pane shows the three columns side by side', async $ => {
     for (const surface of ['desktop', 'terminal'] as const) {
       const ui = await $.ui.mount({
-        plugin: 'ledger', surface, component: 'Pane', requestId: 'ledger',
+        plugin: 'praetorium', surface, component: 'Pane', requestId: 'ledger',
         viewport: { columns: 200, rows: 50 },
         props: { title: 'Ledger', isFocused: false, bodyColumns: 196, placement: 'dock' },
       } as never)
