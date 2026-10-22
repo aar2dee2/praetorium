@@ -13,6 +13,8 @@ import type {
   Theme,
   View,
 } from '../types'
+import { TAG_SYSTEM, parseTagged, tagPrompt } from './tagging'
+import type { Tagged } from './tagging'
 import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand } from './platform'
 import type { Editor, OS, Platform, Terminal } from './platform'
 import {
@@ -136,32 +138,10 @@ async function patchEvent($: $T, id: string, patch: Partial<ActivityEvent>) {
 
 // ---------- requirement tagging (Haiku) ----------
 
-type Tagged = { title: string; quote: string; refines: string | null }
-
 async function tag($: $T, text: string, reqs: Requirement[]): Promise<Tagged[]> {
-  const existing = reqs.length
-    ? reqs.map(r => `${r.id}: ${r.title}`).join('\n')
-    : '(none)'
-  const system =
-    'You split a developer\'s message to a coding agent into atomic, checkable requirements. ' +
-    'Reply with JSON only: {"items":[{"title":string,"quote":string,"refines":string|null}]}. ' +
-    'title: imperative, at most 12 words. quote: the exact words from the message it comes from. ' +
-    'refines: the id of an existing requirement this changes or corrects, else null. ' +
-    'A request phrased as a question ("how do I make it…", "can we…", "could you…", "why isn\'t X…") IS a requirement: state the outcome the user wants. ' +
-    'Skip only questions that ask for information and want nothing built or changed, approvals ("yes", "go ahead", "continue"), and chit-chat. ' +
-    'When unsure, include it. ' +
-    'Reply {"items":[]} when there is no requirement.'
-  const prompt = `Existing requirements:\n${existing}\n\nMessage:\n${text}`
-  const res = await $.model.complete({ model: HAIKU, system, prompt })
-  if (!res.isAnswered) return []
-  const raw = res.text
-  const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)
-  try {
-    const items = (JSON.parse(json) as { items?: Tagged[] }).items ?? []
-    return items.filter(i => typeof i.title === 'string' && i.title.trim())
-  } catch {
-    return []
-  }
+  const lastReply = [...(await read($, eventsA))].reverse().find(ev => ev.kind === 'message')?.detail ?? ''
+  const res = await $.model.complete({ model: HAIKU, system: TAG_SYSTEM, prompt: tagPrompt(reqs, text, lastReply) })
+  return res.isAnswered ? parseTagged(res.text) : []
 }
 
 async function capture($: $T, text: string): Promise<string[]> {

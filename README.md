@@ -101,7 +101,7 @@ Missing colours come from the default theme, and any colour too faint to read on
 
 ## Cost and footprint
 
-- One short Claude Haiku call per prompt you send, to tag requirements. Theme imports make one more.
+- One short Claude Haiku call per prompt you send, to tag requirements. It also reads the agent's previous reply (up to 1,500 characters), because a message like "can we not get X?" only reads one way in context. Theme imports make one more call.
 - About 150 tokens of tool description on each request, for the `ledger` tool the agent uses to report progress and evidence.
 - No database and no files in your projects. Each session's ledger lives in Claude Code's session state, with a copy in the plugin's own store so it survives a restart. The terminal window reads a per-session file in your system temp folder (`praetorium/`), which also holds the pre-edit copies used for diffs.
 
@@ -135,6 +135,20 @@ claude plugin validate .
 
 ```bash
 claude plugin test .
+```
+
+Live checks against the real model and your machine (Node 22.18+, Claude Code signed in):
+
+```bash
+node scripts/live-check.mjs tagging
+```
+
+```bash
+node scripts/live-check.mjs theme https://yourcompany.com
+```
+
+```bash
+node scripts/live-check.mjs terminal iterm
 ```
 
 ## License
