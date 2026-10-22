@@ -13,8 +13,8 @@ import type {
   Theme,
   View,
 } from '../types'
-import { TAG_SYSTEM, parseTagged, tagPrompt } from './tagging'
-import type { Tagged } from './tagging'
+import { BACKFILL_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseTagged, tagPrompt } from './tagging'
+import type { PastPrompt, Tagged } from './tagging'
 import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand } from './platform'
 import type { Editor, OS, Platform, Terminal } from './platform'
 import {
@@ -175,10 +175,10 @@ async function capture($: $T, text: string): Promise<string[]> {
 
 // ---------- activity events from tool calls ----------
 
-function describe(e: Record<string, unknown>): ActivityEvent | undefined {
+function describe(e: Record<string, unknown>, when?: number): ActivityEvent | undefined {
   const tool = String(e.tool)
   const id = String(e.tool_use_id)
-  const at = now()
+  const at = when ?? now()
   const s = (k: string) => (typeof e[k] === 'string' ? (e[k] as string) : '')
   switch (tool) {
     case 'Edit':
@@ -522,6 +522,130 @@ async function themeCommand($: $T, arg: string): Promise<string> {
   return `Theme set to ${verb}.`
 }
 
+// ---------- sessions from before Praetorium: their transcripts ----------
+
+// Transcripts hold everything a person typed, so nothing reads them without a yes,
+// asked once in a dialog and remembered ('allowed' | 'declined').
+const CONSENT_PANE = 'praetorium-consent'
+
+type PastSession = {
+  sessionId: string
+  cwd: string
+  title: string
+  firstAt: number
+  lastAt: number
+  prompts: PastPrompt[]
+  tools: Record<string, unknown>[]
+  replies: { at: number; text: string }[]
+}
+
+const transcriptsAllowed = async ($: $T) => (await $.store.get('transcripts').catch(() => undefined)) === 'allowed'
+
+async function projectsDir($: $T): Promise<string> {
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) || join((await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || '', '.claude')
+  return join(config, 'projects')
+}
+
+// Runs viewer/import.mjs, which streams the transcripts and keeps only what the ledger needs.
+async function readPast($: $T, args: string[]): Promise<PastSession[]> {
+  if (!plat.node) throw new Error('Node.js was not found')
+  const out = join(plat.tmp, `import-${sessionId}.json`)
+  const r = await $.process.run([plat.node, join($root, 'viewer/import.mjs'), await projectsDir($), out, ...args], { timeoutMs: 120_000 })
+  if (r.exitCode !== 0) throw new Error(r.stderr.trim() || `import exited with ${r.exitCode}`)
+  return JSON.parse(String(await $.fs.read(out))) as PastSession[]
+}
+
+// One Haiku call turns a whole past conversation into requirements; tool calls become events.
+async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]; events: ActivityEvent[] }> {
+  const res = await $.model.complete({ model: HAIKU, system: BACKFILL_SYSTEM, prompt: backfillPrompt(past.prompts) })
+  const items = res.isAnswered ? parseBackfill(res.text, past.prompts.length) : []
+  const reqs: Requirement[] = []
+  const byOwnId = new Map<string, string>()
+  for (const item of items) {
+    const at = past.prompts[item.msg - 1]?.at ?? past.firstAt
+    const target = item.refines ? reqs.find(r => r.id === byOwnId.get(item.refines ?? '')) : undefined
+    if (target) {
+      target.history.push({ at, text: item.quote || item.title, kind: 'refinement', by: 'you' })
+      byOwnId.set(item.id, target.id)
+      continue
+    }
+    const id = `R${reqs.length + 1}`
+    byOwnId.set(item.id, id)
+    reqs.push({ id, title: item.title, status: 'captured', at, history: [{ at, text: item.quote || item.title, kind: 'original', by: 'you' }], evidence: [] })
+  }
+  const events: ActivityEvent[] = []
+  for (const t of past.tools) {
+    const ev = describe(t, Number(t.at) || past.lastAt)
+    if (!ev) continue
+    if (ev.state === 'running') ev.state = t.isError ? 'failed' : 'ok'
+    events.push(ev)
+  }
+  for (const [i, m] of past.replies.entries()) {
+    events.push({ id: `m-${past.sessionId}-${i}`, kind: 'message', at: m.at, title: clip(m.text.split('\n')[0] ?? '', 90), detail: m.text })
+  }
+  events.sort((a, b) => a.at - b.at)
+  return { reqs, events: events.slice(-200) }
+}
+
+async function importSessions($: $T, days: number): Promise<string> {
+  const existing = (await $.fs.list(plat.tmp).catch(() => []))
+    .map(f => /^state-(.+)\.json$/.exec(f.name)?.[1])
+    .filter((x): x is string => Boolean(x))
+  const past = await readPast($, ['--days', String(days), '--max', '12', '--skip', [...existing, sessionId].join(',')])
+  const [theme, view] = await Promise.all([read($, themeA), read($, viewA)])
+  let tagged = 0
+  // A few at a time: one Haiku call each.
+  for (let i = 0; i < past.length; i += 4) {
+    await Promise.all(past.slice(i, i + 4).map(async s => {
+      const { reqs, events } = await ledgerOf($, s)
+      tagged += reqs.length
+      await $.fs.write(join(plat.tmp, `state-${s.sessionId}.json`), JSON.stringify({
+        sessionId: s.sessionId, project: base(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
+        imported: true, hasEnded: false, isWorking: false,
+        reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
+      }))
+    }))
+  }
+  return past.length
+    ? `Imported ${past.length} session${past.length === 1 ? '' : 's'} from the last ${days} day${days === 1 ? '' : 's'} (${tagged} requirements). They show in /ledger window, read-only until reopened.`
+    : `No sessions from the last ${days} day${days === 1 ? '' : 's'} left to import.`
+}
+
+// A session reopened after Praetorium was installed starts from its own transcript.
+async function backfillSelf($: $T) {
+  if (!(await transcriptsAllowed($)) || (await read($, reqsA)).length) return
+  try {
+    const [past] = await readPast($, ['--session', sessionId])
+    if (!past?.prompts.length) return
+    const { reqs, events } = await ledgerOf($, past)
+    if ((await read($, reqsA)).length) return // the person sent a prompt meanwhile; keep its ids
+    await update($, reqsA, () => reqs)
+    await update($, eventsA, list => [...events, ...list].slice(-300))
+    if (!(await read($, titleA))) await update($, titleA, () => past.title || clip(past.prompts[0]?.text ?? '', 70))
+    await save($)
+  } catch {
+    // no transcript yet, or it could not be read: start empty
+  }
+}
+
+async function importCommand($: $T, arg: string): Promise<string> {
+  if (arg === 'allow') {
+    await $.store.set('transcripts', 'allowed')
+    void $.ui.close({ id: CONSENT_PANE }).catch(() => undefined)
+    return `Allowed. ${await importSessions($, 2)}`
+  }
+  if (arg === 'revoke') {
+    await $.store.set('transcripts', 'declined')
+    return 'Praetorium will not read transcripts. Sessions already imported stay until your temp folder is cleared.'
+  }
+  if (!(await transcriptsAllowed($))) {
+    await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
+    return 'Praetorium needs your permission to read existing transcripts: answer in the dialog, or run /ledger import allow.'
+  }
+  const days = Math.min(30, Math.max(1, Number.parseInt(arg, 10) || 2))
+  return importSessions($, days)
+}
+
 // ---------- the agent's ledger tool ----------
 
 const TOOL_DESCRIPTION =
@@ -624,10 +748,22 @@ export const register: Register = on => {
     }
     $root = $.plugin.root
     plat = await detect($).catch(() => plat)
+    if ((await read($, reqsA)).length === 0) {
+      // Imported earlier while this session wasn't running Praetorium: take it over.
+      const imported = await $.fs.read(stateFile()).then(t => JSON.parse(t) as { imported?: boolean; reqs?: Requirement[]; events?: ActivityEvent[]; title?: string }).catch(() => undefined)
+      if (imported?.imported) {
+        await update($, reqsA, () => imported.reqs ?? [])
+        await update($, eventsA, () => imported.events ?? [])
+        if (imported.title) await update($, titleA, () => imported.title ?? '')
+      } else {
+        $.clock.after(0, () => void backfillSelf($))
+      }
+    }
+    if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
     $.clock.every(700, () => void pollInbox($).catch(() => undefined))
     await mirror($)
     await $.tool.register({ name: 'ledger', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
-    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | theme … | wide | narrow]' })
+    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | theme … | import [days | allow | revoke] | wide | narrow]' })
     void openPane($)
     return next(e)
   })
@@ -637,6 +773,7 @@ export const register: Register = on => {
     const arg = raw.toLowerCase()
     if (arg === 'window' || arg.startsWith('window ')) return { text: await openWindow($, raw.slice(6).trim()) }
     if (arg === 'theme' || arg.startsWith('theme ')) return { text: await themeCommand($, raw.slice(5).trim()) }
+    if (arg === 'import' || arg.startsWith('import ')) return { text: await importCommand($, arg.slice(6).trim()) }
     if (arg === 'wide' || arg === 'narrow') await $.store.set('width', arg)
     const width = await openPane($)
     return { text: `Ledger opened (${width}). /ledger window opens it in your terminal; /ledger theme changes the colours; /ledger wide or /ledger narrow resizes this pane; dragging the pane edge also works.` }
@@ -703,6 +840,35 @@ export const register: Register = on => {
   })
 
   // ---------- the pane ----------
+
+  on('ui.render', { component: 'Pane', requestId: CONSENT_PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const p = palette(await read($, themeA), (await read($, viewA)).dark)
+    const answer = async (choice: 'allowed' | 'declined') => {
+      await $.store.set('transcripts', choice)
+      await $.ui.close({ id: CONSENT_PANE })
+      if (choice === 'allowed') {
+        void backfillSelf($)
+        await $.ui.toast(await importSessions($, 2))
+      }
+    }
+    return (
+      <Box flexDirection="column" padding={1} gap={1} backgroundColor={p.bg}>
+        <Text color={p.text} bold>Show sessions you started before Praetorium?</Text>
+        <Text color={p.text2}>
+          Praetorium can read the Claude Code transcripts on this computer (~/.claude/projects) from the last 2 days, so earlier sessions appear in the ledger.
+        </Text>
+        <Text color={p.text2}>
+          It reads your prompts, the names and file paths of the agent's tool calls, and its replies. File contents are not kept. Each session costs one Claude Haiku call to list its requirements. Nothing is written to the transcripts.
+        </Text>
+        <Text color={p.text3}>Change this any time with /ledger import allow or /ledger import revoke.</Text>
+        <Box flexDirection="row" gap={1}>
+          <Button key="consent-allow" label="Allow" variant="primary" onPress={() => answer('allowed')} />
+          <Button key="consent-decline" label="Not now" onPress={() => answer('declined')} />
+        </Box>
+      </Box>
+    )
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     if (e.surface === "mobile") {

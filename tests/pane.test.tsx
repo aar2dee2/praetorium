@@ -36,3 +36,33 @@ describe('ledger wide', () => {
     }
   })
 })
+
+describe('transcript consent', () => {
+  test('the dialog explains what is read, and Not now records a no', async ($, on) => {
+    // The plugin's store, in memory, so the test can read what the dialog saved.
+    const saved: Record<string, unknown> = {}
+    on('store.get', ($, e) => ({ value: saved[e.key] }))
+    on('store.set', ($, e) => {
+      saved[e.key] = e.value
+      return { value: undefined }
+    })
+    on('store.delete', ($, e) => {
+      delete saved[e.key]
+      return { value: undefined }
+    })
+    on('store.keys', () => ({ value: Object.keys(saved) }))
+    on('ui.close', () => ({ value: undefined }))
+    for (const surface of ['desktop', 'terminal'] as const) {
+      const ui = await $.ui.mount({
+        plugin: 'praetorium', surface, component: 'Pane', requestId: 'praetorium-consent',
+        viewport: { columns: 80, rows: 30 },
+        props: { title: 'Praetorium', isFocused: true, bodyColumns: 76, placement: 'dock' },
+      } as never)
+      expect(await ui.find({ type: 'Text', text: /before Praetorium/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /File contents are not kept/ })).toBeDefined()
+      await ui.press({ key: 'consent-decline' })
+      expect(saved.transcripts).toBe('declined')
+      await ui.unmount()
+    }
+  })
+})

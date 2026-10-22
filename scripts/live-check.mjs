@@ -4,6 +4,7 @@
 //   node scripts/live-check.mjs tagging
 //   node scripts/live-check.mjs theme <website URL | tailwind.config.js | file.css>
 //   node scripts/live-check.mjs terminal <terminal id>
+//   node scripts/live-check.mjs import <session id>   (reads that one transcript)
 //
 // Model calls go through `claude -p` with plugins kept out, so Claude Code must be signed in.
 // Needs Node 22.18+ or 23.6+ (it imports the mod's TypeScript files directly).
@@ -13,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-import { TAG_SYSTEM, parseTagged, tagPrompt } from '../hooks/tagging.ts'
+import { BACKFILL_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseTagged, tagPrompt } from '../hooks/tagging.ts'
 import { IMPORT_SYSTEM, colourLines, contrast, pageParts, sourceKind, themeFromReply } from '../hooks/theme.ts'
 import { LINUX, MAC, WINDOWS, launchCommand } from '../hooks/platform.ts'
 
@@ -102,7 +103,22 @@ async function terminal(id) {
   fs.rmSync(marker, { force: true })
 }
 
-const checks = { tagging, theme, terminal }
+async function importOne(id) {
+  const out = path.join(os.tmpdir(), `praetorium-import-check-${Date.now()}.json`)
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  const r = spawnSync(process.execPath, [new URL('../viewer/import.mjs', import.meta.url).pathname, path.join(config, 'projects'), out, '--session', id], { encoding: 'utf8' })
+  result(r.status === 0, 'the transcript was read', (r.stderr || r.stdout).trim())
+  const [past] = JSON.parse(fs.readFileSync(out, 'utf8'))
+  fs.rmSync(out, { force: true })
+  result(Boolean(past?.prompts.length), 'it has your prompts', past ? `${past.prompts.length} prompts, ${past.tools.length} tool calls, title "${past.title}"` : 'none')
+  if (!past) return
+  const leak = past.prompts.some(p => /<system-reminder>|<command-name>/.test(p.text))
+  result(!leak, 'injected reminders and command wrappers are left out')
+  const items = parseBackfill(haiku(BACKFILL_SYSTEM, backfillPrompt(past.prompts)), past.prompts.length)
+  result(items.length > 0, 'Haiku listed its requirements', items.map(i => `${i.id}${i.refines ? `→${i.refines}` : ''} ${i.title}`).join('\n      '))
+}
+
+const checks = { tagging, theme, terminal, import: importOne }
 if (!checks[check] || (check !== 'tagging' && !arg)) {
   console.error('usage: live-check.mjs tagging | theme <source> | terminal <id>')
   process.exit(2)

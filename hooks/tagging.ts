@@ -35,3 +35,34 @@ export function parseTagged(reply: string): Tagged[] {
     return []
   }
 }
+
+// ---------- a whole past conversation at once (/ledger import, resumed sessions) ----------
+
+export type PastPrompt = { at: number; text: string; lastReply: string }
+export type BackfillItem = { id: string; title: string; quote: string; msg: number; refines: string | null }
+
+export const BACKFILL_SYSTEM =
+  'You read a developer\'s messages to a coding agent, in order, and list the requirements they asked for. ' +
+  'Reply with JSON only: {"items":[{"id":string,"title":string,"quote":string,"msg":number,"refines":string|null}]}. ' +
+  'Number ids R1, R2… in the order you list them. title: imperative, at most 12 words. quote: the exact words. ' +
+  'msg: the number of the message it comes from. refines: the id of an earlier item this later message changes or corrects, else null. ' +
+  'Each message is shown after the agent\'s reply it answers; read it in that light. ' +
+  'A request phrased as a question ("how do I…", "can we…", "can we not get X" asking FOR X) is a requirement. ' +
+  'Not requirements: questions asked only to understand, approvals ("yes", "go ahead"), and chit-chat. ' +
+  'Merge repeats of the same ask into one item.'
+
+export function backfillPrompt(prompts: PastPrompt[]): string {
+  return prompts
+    .map((p, i) => `${p.lastReply ? `[agent before message ${i + 1}]: ${p.lastReply}\n` : ''}[message ${i + 1}]: ${p.text}`)
+    .join('\n\n')
+}
+
+export function parseBackfill(reply: string, count: number): BackfillItem[] {
+  try {
+    const json = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)
+    const items = (JSON.parse(json) as { items?: BackfillItem[] }).items ?? []
+    return items.filter(i => typeof i.title === 'string' && i.title.trim() && Number.isInteger(i.msg) && i.msg >= 1 && i.msg <= count)
+  } catch {
+    return []
+  }
+}

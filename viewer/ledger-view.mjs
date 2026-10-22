@@ -178,7 +178,7 @@ function sessionLines(w) {
     const isSel = focus === 'sessions' && isCur
     const L = st.reqs.filter(r => r.status !== 'deferred')
     const v = L.filter(r => r.status === 'verified' && !r.needsReverify).length
-    const dot = st.isWorking ? seg('● ', p.active) : st.hasEnded ? seg('· ', p.text3) : seg('○ ', p.text3)
+    const dot = st.isWorking ? seg('● ', p.active) : st.imported ? seg('◌ ', p.text3) : st.hasEnded ? seg('· ', p.text3) : seg('○ ', p.text3)
     lines.push({ sel: isSel || isCur, line: [dot, seg(st.project || 'session', isCur ? p.text : p.text2, undefined, isCur)] })
     lines.push({ sel: isSel || isCur, line: [seg('  '), seg(st.title || 'No prompt yet', p.text3)] })
     lines.push({ sel: isSel || isCur, line: [seg('  '), seg(`${v}/${L.length} verified`, v === L.length && L.length ? p.done : p.text3)] })
@@ -297,6 +297,7 @@ function render() {
   rows.push({ line: [
     seg(' Ledger ', p.text, undefined, true),
     seg(` ${S.project || ''}${S.title ? ` · ${S.title}` : ''}`, p.text2),
+    ...(S.imported ? [seg('  imported · read-only until reopened', p.warn)] : []),
     seg(`   ${L.length} requirements · `, p.text2), seg(`${verified} verified`, p.done), seg(` · ${L.length - verified} open`, p.text2),
     seg('   agent ', p.text3), S.isWorking ? seg('● working', p.active) : seg('○ idle', p.text3),
   ] })
@@ -442,6 +443,12 @@ function onKey(k) {
   const evs = shownEvents()
   const ev = evs[sel.activity]
   const req = S.reqs[sel.reqs]
+  // An imported session has no Praetorium running in it to receive anything.
+  if (S.imported && 'cnfiadg'.includes(k)) {
+    flash = 'This session was imported from its transcript. Reopen it in Claude Code to reply, accept or instruct.'
+    setTimeout(() => { flash = ''; render() }, 4000)
+    return render()
+  }
   switch (k) {
     case 'q': case '\x03': return quit()
     case '\t': case '\x1b[C': {

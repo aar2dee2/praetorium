@@ -17,7 +17,7 @@ It shows up in two places: a pane inside the session, and a window in your own t
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install Praetorium: run **`claude plugin marketplace add aar2dee2/praetorium`** and then **`claude plugin install praetorium@praetorium`**. Then tell me to start a new Claude Code session, run `/ledger window` to open the ledger in my terminal, and ask whether I want to match my brand's colours with `/ledger theme import <my website or tailwind.config.js>`.
+> Install Praetorium: run **`claude plugin marketplace add aar2dee2/praetorium`** and then **`claude plugin install praetorium@praetorium`**. Then tell me to start a new Claude Code session, where Praetorium will ask whether it may read my existing transcripts to show earlier sessions; then run `/ledger window` to open the ledger in my terminal, and ask whether I want to match my brand's colours with `/ledger theme import <my website or tailwind.config.js>`.
 
 It works in the Claude Code terminal app and in the Claude desktop app's Code tab, on macOS, Windows and Linux.
 
@@ -42,6 +42,8 @@ It works in the Claude Code terminal app and in the Claude desktop app's Code ta
 | `/ledger theme` | Show the current theme and the presets |
 | `/ledger theme <preset>` | `graphite` (default), `paper`, `telborg` |
 | `/ledger theme import <source>` | Build a theme from your brand (below) |
+| `/ledger import [days]` | Show sessions started before Praetorium, from their transcripts (default 2 days, up to 30) |
+| `/ledger import allow` · `revoke` | Allow or stop reading transcripts |
 
 ### Terminals
 
@@ -70,6 +72,16 @@ Colours are full 24-bit where the terminal supports it, and the nearest of 256 e
 | `v` | All events, or key events only |
 | `l` | Light or dark |
 | `q` | Quit |
+
+## Sessions from before Praetorium
+
+Sessions started before you installed Praetorium don't run it, so nothing in them can reach the agent. Their transcripts can still be read:
+
+- **Asked first.** The first session after installing shows a dialog explaining what would be read. Nothing is read until you choose Allow. The answer is remembered; change it with `/ledger import allow` or `/ledger import revoke`.
+- **What is read.** From `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), for sessions active in the last 2 days by default: your prompts, the agent's replies, and the name and file path or command of each tool call. File contents and diffs are not kept. Nothing is written to the transcripts.
+- **What it costs.** One Claude Haiku call per session, to list its requirements.
+- **What you get.** Each session appears in `/ledger window` (marked ◌, read-only), with its requirements and activity. Imported requirements start as not started: there's no evidence about them yet.
+- **Reopen to connect.** When you reopen an old session, Praetorium loads in it and takes over its imported ledger (or reads its transcript then, if you allowed it). From there, replies, instructions and interrupts work as usual.
 
 ## Your own colours
 
@@ -115,6 +127,7 @@ Praetorium is a Claude Code plugin made of function hooks (`hooks/register.tsx`)
 - The `ledger` tool lets the agent mark progress; `verified` is refused without a passing check after the last edit.
 - Replies reach the agent inside its running turn, start a new turn, or wait for your next prompt; an interrupt cancels the turn first.
 - `viewer/ledger-view.mjs` is the terminal window: plain Node, no dependencies. It reads the state files and writes your actions to an inbox file the session polls.
+- `viewer/import.mjs` streams transcripts for `/ledger import`, keeping only prompts, replies and tool-call names and paths; `hooks/tagging.ts` holds the prompts that turn messages into requirements.
 
 ## Develop
 
@@ -149,6 +162,10 @@ node scripts/live-check.mjs theme https://yourcompany.com
 
 ```bash
 node scripts/live-check.mjs terminal iterm
+```
+
+```bash
+node scripts/live-check.mjs import <session id>
 ```
 
 ## License
