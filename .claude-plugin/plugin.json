@@ -1,0 +1,6 @@
+{
+  "name": "ledger",
+  "version": "0.1.0",
+  "description": "Requirements ledger, activity stream with in-context replies, and a completion audit, in Telborg colours",
+  "types": "./types/index.d.ts"
+}
