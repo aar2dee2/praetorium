@@ -261,9 +261,41 @@ async function which($: $T, os: OS, name: string): Promise<string> {
     const r = await run($, ['where', name])
     return r?.exitCode === 0 ? firstLine(r.stdout) : ''
   }
-  const shell = (await $.env.get('SHELL')) || '/bin/sh'
-  const r = await run($, [shell, '-lc', `command -v ${name}`])
-  return r?.exitCode === 0 ? firstLine(r.stdout.trim().split('\n').pop()) : ''
+  // A login shell first, then an interactive one: nvm and friends often live in .zshrc / .bashrc.
+  const shell = (await $.env.get('SHELL')) || '/bin/zsh'
+  for (const flags of ['-lc', '-ilc']) {
+    const r = await run($, [shell, flags, `command -v ${name}`])
+    const found = r?.exitCode === 0 ? firstLine(r.stdout.trim().split('\n').pop()) : ''
+    if (found.startsWith('/')) return found
+  }
+  return ''
+}
+
+// Apps started from the Dock or Start menu (the desktop app) get a minimal PATH,
+// so after PATH, look where Node installers put it.
+async function findNode($: $T, os: OS): Promise<string> {
+  const onPath = await which($, os, 'node')
+  if (onPath) return onPath
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''
+  const fixed = os === 'windows'
+    ? ['C:/Program Files/nodejs/node.exe', join(home, 'AppData/Roaming/nvm/current/node.exe'), join(home, '.volta/bin/node.exe')]
+    : ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node', join(home, '.volta/bin/node'), join(home, '.local/share/mise/shims/node'), join(home, '.asdf/shims/node')]
+  for (const bin of fixed) if (await $.fs.exists(bin).catch(() => false)) return bin
+  // nvm: the newest installed version
+  const nvm = join(home, '.nvm/versions/node')
+  const versions = (await $.fs.list(nvm).catch(() => []))
+    .map(v => v.name)
+    .filter(v => /^v\d+\.\d+\.\d+$/.test(v))
+    .sort((a, b) => {
+      const pa = a.slice(1).split('.').map(Number)
+      const pb = b.slice(1).split('.').map(Number)
+      return (pb[0]! - pa[0]!) || (pb[1]! - pa[1]!) || (pb[2]! - pa[2]!)
+    })
+  for (const v of versions) {
+    const bin = join(nvm, v, 'bin/node')
+    if (await $.fs.exists(bin).catch(() => false)) return bin
+  }
+  return ''
 }
 
 async function detect($: $T): Promise<Platform> {
@@ -277,7 +309,7 @@ async function detect($: $T): Promise<Platform> {
     const bin = os === 'mac' && (await $.fs.exists(macBin).catch(() => false)) ? macBin : await which($, os, cmd)
     if (bin) editors.push({ name, bin })
   }
-  return { os, tmp: join(tmpRoot, 'praetorium'), node: await which($, os, 'node'), editors }
+  return { os, tmp: join(tmpRoot, 'praetorium'), node: await findNode($, os), editors }
 }
 
 async function installedTerminals($: $T): Promise<Terminal[]> {
@@ -484,6 +516,12 @@ async function openWindow($: $T, wanted: string): Promise<string> {
   }
   if (wanted) await $.store.set('terminal', term.id)
   await mirror($)
+  // One window for every session: if it's open (fresh heartbeat), switch it here instead.
+  const beat = Number(await $.fs.read(join(plat.tmp, 'viewer.alive')).catch(() => '0'))
+  if (!wanted && now() - beat < 3000) {
+    await $.fs.write(join(plat.tmp, 'viewer.focus'), sessionId)
+    return 'The Praetorium window is already open; it now shows this session. (/ledger window <terminal> opens another.)'
+  }
   const err = await openIn($, term, viewerArgs(plat.tmp, sessionId), 'Praetorium')
   return err
     ? `Could not open ${term.name}: ${err}`
@@ -803,11 +841,17 @@ export const register: Register = on => {
     if (e.agentId || String(e.tool) === TOOL) return next(e)
     const ev = describe(e as unknown as Record<string, unknown>)
     if (!ev) return next(e)
-    if (ev.kind === 'code') await snapshot($, ev)
-    await pushEvent($, ev)
+    // Recording is best effort: a reload can unload this plugin mid-call, and the
+    // person's tool call must never fail because of the ledger.
+    try {
+      if (ev.kind === 'code') await snapshot($, ev)
+      await pushEvent($, ev)
+    } catch {
+      // not recorded
+    }
     const ran = await next(e)
     if (ev.state === 'running') {
-      await patchEvent($, ev.id, { state: ran.deny !== undefined || ran.isError === true ? 'failed' : 'ok' })
+      await patchEvent($, ev.id, { state: ran.deny !== undefined || ran.isError === true ? 'failed' : 'ok' }).catch(() => undefined)
     }
     return ran
   }).catch(($, e, next) => next(e))

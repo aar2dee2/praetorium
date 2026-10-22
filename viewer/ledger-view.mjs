@@ -18,6 +18,21 @@ if (process.argv[2] === '--diff') {
 
 const dir = process.argv[2] || path.join(os.tmpdir(), 'praetorium')
 let cur = process.argv[3] ?? ''
+const SELF = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+const ALIVE = path.join(dir, 'viewer.alive') // heartbeat: the mod opens no second window while it's fresh
+const FOCUS = path.join(dir, 'viewer.focus') // a session id the mod asks this window to show
+const RELOAD = 75
+
+// The process the terminal runs is a supervisor: it restarts the viewer when the
+// viewer's code changes, keeping the selected session, so updates show without a new window.
+if (!process.env.PRAETORIUM_VIEWER_CHILD) {
+  let select = cur
+  for (;;) {
+    const r = spawnSync(process.execPath, [SELF, dir, select], { stdio: 'inherit', env: { ...process.env, PRAETORIUM_VIEWER_CHILD: '1' } })
+    if (r.status !== RELOAD) process.exit(r.status ?? 0)
+    try { select = fs.readFileSync(path.join(dir, 'viewer.select'), 'utf8').trim() } catch { /* keep */ }
+  }
+}
 const sessions = new Map() // id -> { state, mtime }
 const WEEK = 7 * 24 * 3600 * 1000
 const inboxFile = () => path.join(dir, `inbox-${cur}.jsonl`)
@@ -480,10 +495,45 @@ function onKey(k) {
   render()
 }
 
-function quit() {
+function quit(code = 0) {
   out.write('\x1b[0m\x1b[?25h\x1b[?1049l')
-  process.exit(0)
+  if (code === RELOAD) {
+    try { fs.writeFileSync(path.join(dir, 'viewer.select'), cur) } catch { /* starts on the newest */ }
+  } else {
+    try { fs.rmSync(ALIVE, { force: true }) } catch { /* stale heartbeat expires */ }
+  }
+  process.exit(code)
 }
+
+// Heartbeat, a switch asked for by /ledger window, and a reload when this file changes.
+// A focus request older than this window is stale; anything after it is new.
+let focusSeen = Date.now()
+function heartbeat() {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(ALIVE, String(Date.now()))
+    const st = fs.statSync(FOCUS, { throwIfNoEntry: false })
+    if (st && st.mtimeMs > focusSeen) {
+      focusSeen = st.mtimeMs
+      const id = fs.readFileSync(FOCUS, 'utf8').trim()
+      if (id && id !== cur) {
+        cur = id
+        sel.reqs = 0
+        sel.activity = 0
+        flash = 'Switched to the session that ran /ledger window'
+        setTimeout(() => { flash = ''; render() }, 3000)
+        load()
+      }
+    }
+  } catch {
+    // the next beat tries again
+  }
+}
+setInterval(heartbeat, 1000)
+heartbeat()
+fs.watchFile(SELF, { interval: 1000 }, (now, before) => {
+  if (now.mtimeMs !== before.mtimeMs) quit(RELOAD)
+})
 
 out.write('\x1b[?1049h\x1b[?25l')
 process.stdin.setRawMode(true)
@@ -494,7 +544,7 @@ process.stdin.on('data', data => {
   for (const k of keys) onKey(k)
 })
 out.on('resize', render)
-process.on('SIGTERM', quit)
+process.on('SIGTERM', () => quit())
 setInterval(scan, 500)
 scan()
 render()

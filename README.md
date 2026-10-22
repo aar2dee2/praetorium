@@ -37,7 +37,7 @@ It works in the Claude Code terminal app and in the Claude desktop app's Code ta
 |---|---|
 | `/ledger` | Open the pane in this session |
 | `/ledger wide` · `/ledger narrow` | Ask for a wide pane (three columns side by side) or a narrow one (tabs) |
-| `/ledger window` | Open the ledger in a terminal window, across all your sessions |
+| `/ledger window` | Open the ledger in a terminal window, across all your sessions. If it's already open, it switches to this session instead |
 | `/ledger window <terminal>` | Open it in a specific terminal, and remember the choice |
 | `/ledger theme` | Show the current theme and the presets |
 | `/ledger theme <preset>` | `graphite` (default), `paper`, `telborg` |
@@ -54,6 +54,8 @@ It works in the Claude Code terminal app and in the Claude desktop app's Code ta
 | `iterm`, `ghostty`, `wezterm`, `kitty`, `warp`, `terminal` | `wt` (Windows Terminal), `wezterm`, `pwsh`, `powershell`, `cmd` | `ghostty`, `wezterm`, `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `x-terminal-emulator` |
 
 Colours are full 24-bit where the terminal supports it, and the nearest of 256 elsewhere (Apple Terminal, older consoles).
+
+There's one window for all sessions. It picks up new and imported sessions as they appear, and restarts itself when Praetorium updates, keeping your place.
 
 ### Keys in the terminal window
 
