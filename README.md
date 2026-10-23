@@ -129,7 +129,7 @@ Missing colours come from the default theme, and any colour too faint to read on
 ## Cost and footprint
 
 - One short Claude Haiku call per prompt you send, to tag requirements. It also reads the agent's previous reply (up to 1,500 characters), because a message like "can we not get X?" only reads one way in context. Theme imports make one more call.
-- About 150 tokens of tool description on each request, for the `ledger` tool the agent uses to report progress and evidence.
+- About 225 tokens of tool definition on each request, for the `ledger` tool the agent uses to report progress and evidence.
 - One more Haiku call per agent turn with a long reply, to pick out findings worth acting on and check the work against your requirements.
 - No database and no files in your projects. Each session's ledger lives in Claude Code's session state, with a copy in `~/.claude/praetorium/` (one small file per session, dropped after 30 days unused) that the terminal window reads. Pre-edit copies used for diffs go to your system temp folder.
 

@@ -835,23 +835,21 @@ async function importCommand($: $T, arg: string): Promise<string> {
 // ---------- the agent's ledger tool ----------
 
 const TOOL_DESCRIPTION =
-  'The user\'s requirements ledger (ids R1, R2…). Call it when you start or finish work on a requirement, ' +
-  'when one is blocked or unclear, or to split one into smaller ones. ' +
-  'status "verified" is accepted only with test_command: a substring of a test/build command you ran that passed after your last edit; otherwise it is recorded as implemented. ' +
-  'action "detach" (id, index) moves a message wrongly linked as a refinement of id out into its own requirement. ' +
-  'When you write a plan or todo list, start each item with the requirement ids it serves, like "[R2, R5] Add the search box", so the ledger can show which requirements the plan leaves out.'
+  "The user's requirements ledger (R1, R2…). Update a requirement when you start, finish, get blocked or need clarification; add one to split a requirement. " +
+  '"verified" needs test_command: part of a test/build command that passed after your last edit. ' +
+  'Start plan and todo items with the ids they serve, e.g. "[R2] Add search".'
 
 const TOOL_SCHEMA = {
   type: 'object',
   properties: {
     action: { type: 'string', enum: ['update', 'add', 'detach'] },
-    index: { type: 'number', description: 'For detach: the position of the message in the requirement history (1 or more)' },
-    id: { type: 'string', description: 'Requirement id, for update' },
+    id: { type: 'string' },
     status: { type: 'string', enum: ['in_progress', 'implemented', 'verified', 'blocked', 'needs_clarification'] },
     test_command: { type: 'string' },
-    note: { type: 'string', description: 'Evidence or reason, one line' },
-    title: { type: 'string', description: 'For add: the new requirement' },
-    derived_from: { type: 'string', description: 'For add: the id it was split from' },
+    note: { type: 'string' },
+    title: { type: 'string', description: 'add: the new requirement' },
+    derived_from: { type: 'string', description: 'add: id it splits' },
+    index: { type: 'number', description: 'detach: history position of a message wrongly linked as a refinement of id' },
   },
   required: ['action'],
 }
