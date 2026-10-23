@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
 import { DEFAULT_THEME, palette } from '../hooks/theme.ts'
-import { REQ_FILTERS, filterReqs, gapOf, isSecretPath, isVerified } from '../hooks/work.ts'
+import { REQ_FILTERS, filterReqs, gapOf, isSecretPath, isVerified, linker } from '../hooks/work.ts'
 
 const G = globalThis.PRAETORIUM ?? { args: process.argv.slice(2), self: [process.execPath, process.argv[1]], isCompiled: false }
 const HOME = os.homedir()
@@ -250,12 +250,12 @@ const shownReqs = () => filterReqs(S.reqs, search, reqFilter)
 const openSignals = () => (S.signals ?? []).filter(x => !x.dismissed).slice().reverse()
 // The requirement in view: the one selected in the requirements column, wherever focus is.
 const reqInView = () => shownReqs()[sel.reqs]
-// Sessions recorded before events were linked to requirements have no links to filter by.
-const hasLinks = () => S.events.some(e => e.reqIds)
-const forReq = () => (!allActivity && hasLinks() ? reqInView() : undefined)
+// Which requirements each event was for: its own links, else worked out from when you asked.
+let linkOf = linker([])
+const forReq = () => (allActivity ? undefined : reqInView())
 const shownEvents = () => {
   const r = forReq()
-  return [...S.events].filter(e => (!r || e.reqIds?.includes(r.id)) && (showAll || r || (e.kind !== 'discovery' && e.kind !== 'command'))).reverse()
+  return [...S.events].filter(e => (!r || linkOf(e).includes(r.id)) && (showAll || r || (e.kind !== 'discovery' && e.kind !== 'command'))).reverse()
 }
 const testRuns = () => [...S.events].filter(e => e.kind === 'test').reverse()
 const previews = () => [...(S.previews ?? [])].reverse()
@@ -299,9 +299,8 @@ function middleLines(w, withSignals) {
     const evs = shownEvents()
     const r = forReq()
     if (r) lines.push([seg(`for ${r.id}`, P.text2, undefined, true), seg('  A all activity', P.text3)])
-    else if (!hasLinks() && S.events.length) lines.push(...wrap('Recorded before activity was linked to requirements, so this is all of it.', w, P.text3), [seg(showAll ? 'everything' : 'key events', P.text3), seg('  v to switch', P.text3)])
     else lines.push([seg(`all activity · ${showAll ? 'everything' : 'key events'}`, P.text3), seg(`  ${reqInView() ? `A only ${reqInView().id}  ` : ''}v to switch`, P.text3)])
-    if (!evs.length) lines.push(...wrap(r ? `Nothing linked to ${r.id} yet. Work on it shows here as the agent does it.` : 'No activity yet.', w, P.text3))
+    if (!evs.length) lines.push(...wrap(r ? `No activity for ${r.id} yet. Work on it shows here as the agent does it. A shows everything.` : 'No activity yet.', w, P.text3))
     evs.forEach((ev, i) => {
       const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
       const n = S.replies.filter(r => r.eventId === ev.id).length
@@ -346,7 +345,7 @@ function eventDetail(ev, w) {
   const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
   lines.push([chip(label, t), seg(`  ${hhmm(ev.at)}`, P.text3)], ...wrap(ev.title, w, P.text))
   if (ev.file) lines.push([seg(ev.file, P.text3)])
-  if (ev.reqIds?.length) lines.push([seg(`For ${ev.reqIds.join(', ')}`, P.text3)])
+  if (linkOf(ev).length) lines.push([seg(`For ${linkOf(ev).join(', ')}`, P.text3)])
   if (ev.detail) lines.push([], ...wrap(ev.detail, w, P.text2).slice(0, 14))
   const thread = S.replies.filter(r => r.eventId === ev.id)
   if (thread.length) lines.push([])
@@ -363,7 +362,7 @@ function eventDetail(ev, w) {
 function signalContext(sig, w) {
   const lines = []
   const ev = S.events.find(e => e.id === sig.eventId)
-  const ids = [...new Set([sig.reqId, ...(ev?.reqIds ?? [])].filter(Boolean))]
+  const ids = [...new Set([sig.reqId, ...(ev ? linkOf(ev) : [])].filter(Boolean))]
   const part = (label, text, fg, max) => { if (text?.trim()) lines.push([seg(label, P.text3)], ...wrap(text.trim(), w, fg, '  ').slice(0, max), []) }
   for (const id of ids) { const r = S.reqs.find(x => x.id === id); if (r) part(`Requirement ${r.id}`, r.title, P.text, 3) }
   const c = sig.context ?? {}
@@ -522,6 +521,7 @@ function clampSel() {
 
 function load() {
   S = sessions.get(cur)?.state ?? EMPTY
+  linkOf = linker(S.reqs, S.asks)
   clampSel()
   render()
 }

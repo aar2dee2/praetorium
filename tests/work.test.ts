@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Requirement } from '../types'
-import { filterReqs, gapOf, linkStep, planFrom, previewUrls } from '../hooks/work'
+import { filterReqs, gapOf, linkStep, linker, planFrom, previewUrls } from '../hooks/work'
 import { parseReview, parseTagged } from '../hooks/tagging'
 
 const req = (id: string, title: string, extra: Partial<Requirement> = {}): Requirement => ({
@@ -105,5 +105,29 @@ describe('judged progress', () => {
   test('a review moves statuses, but never to verified', async () => {
     const r = parseReview('{"findings":[],"conflicts":[],"progress":[{"id":"R1","status":"implemented","why":"tests pass"},{"id":"R2","status":"verified","why":"x"},{"id":"R3","status":"in_progress","why":"started"}]}')
     expect(r.progress.map(p => `${p.id}:${p.status}`)).toEqual(['R1:implemented', 'R3:in_progress'])
+  })
+})
+
+describe('activity per requirement', () => {
+  test('events are placed in the turn of your latest message before them', async () => {
+    const ask = (at: number, text: string) => ({ at, text, kind: 'original' as const, by: 'you' as const })
+    const reqs = [
+      req('R1', 'Add search', { history: [ask(100, 'add search')] }),
+      req('R2', 'Add filters', { history: [ask(100, 'and filters'), { at: 300, text: 'filters by date too', kind: 'refinement', by: 'you' }] }),
+      req('R3', 'Dark mode', { history: [ask(500, 'dark mode')] }),
+    ]
+    const ev = (at: number, reqIds?: string[]) => ({ id: String(at), kind: 'code' as const, at, title: 'x', ...(reqIds ? { reqIds } : {}) })
+    const link = linker(reqs, [100, 250, 300, 500])
+    expect(link(ev(50))).toEqual([])
+    expect(link(ev(150))).toEqual(['R1', 'R2'])
+    // 250 was a message that asked nothing new: its turn is linked to nothing.
+    expect(link(ev(260))).toEqual([])
+    expect(link(ev(350))).toEqual(['R2'])
+    expect(link(ev(600))).toEqual(['R3'])
+    // Requirements from one message are saved milliseconds apart; they're still one turn.
+    const split = linker([req('R7', 'a', { history: [ask(1000, 'a')] }), req('R8', 'b', { history: [ask(1004, 'b')] })])
+    expect(split(ev(2000))).toEqual(['R7', 'R8'])
+    // Events that carry their own links keep them.
+    expect(link(ev(600, ['R1']))).toEqual(['R1'])
   })
 })

@@ -20,7 +20,7 @@ import type {
 } from '../types'
 import { REVIEW_SYSTEM, TAG_SYSTEM, buildLedger, judgeStatuses, parseReview, parseTagged, reviewPrompt, tagPrompt, turnsAsConversation } from './tagging'
 import type { Complete, LedgerItem, PastPrompt, Progress, Tagged, Turn } from './tagging'
-import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, planFrom, previewUrls } from './work'
+import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, linker, planFrom, previewUrls } from './work'
 import type { ReqFilterName } from './work'
 import { RELEASE } from './release'
 import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand, programName } from './platform'
@@ -194,7 +194,9 @@ async function consolidate($: $T) {
     const reqs = await read($, reqsA)
     const open = reqs.filter(r => !((r.status === 'verified' && !r.needsReverify) || r.status === 'deferred' || r.status === 'revisit'))
     if (!open.length) return
-    const { prompts, replies } = turnsAsConversation(await read($, turnsA))
+    // The whole conversation when you've allowed reading transcripts; else the turns seen live.
+    const [past] = (await transcriptsAllowed($)) ? await readPast($, ['--session', sessionId]).catch(() => []) : []
+    const { prompts, replies } = past?.prompts.length ? past : turnsAsConversation(await read($, turnsA))
     const items = open.map(asLedgerItem)
     if (await judgeStatuses(items, prompts, replies, haiku($))) return
     const progress = items
@@ -918,7 +920,8 @@ async function importSessions($: $T, days: number, again = false): Promise<strin
     if (again && (await $.fs.read(join(plat.data, f.name)).then(t => (JSON.parse(t) as { imported?: boolean }).imported).catch(() => false))) continue
     existing.push(id)
   }
-  const past = await readPast($, ['--days', String(days), '--max', '12', '--skip', [...existing, sessionId].join(',')])
+  // Refreshing redoes every imported session in the window, not only the newest few.
+  const past = await readPast($, ['--days', String(days), '--max', again ? '40' : '12', '--skip', [...existing, sessionId].join(',')])
   const [theme, view] = await Promise.all([read($, themeA), read($, viewA)])
   let tagged = 0
   let imported = 0
@@ -935,7 +938,7 @@ async function importSessions($: $T, days: number, again = false): Promise<strin
       tagged += reqs.length
       await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
         sessionId: s.sessionId, project: projectName(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
-        imported: true, hasEnded: false, isWorking: false,
+        imported: true, hasEnded: false, isWorking: false, asks: s.prompts.map(pr => pr.at),
         reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
       }))
     }))
@@ -996,6 +999,18 @@ async function importCommand($: $T, arg: string): Promise<string> {
 }
 
 // Re-judges this session's requirements against its whole conversation, read in order.
+// A ledger kept by an earlier version was judged with less of the conversation (or not at all),
+// so once per version each reopened session is read again in full, as /ledger refresh does.
+async function rejudgeOnce($: $T) {
+  const key = `judged:${sessionId}`
+  if (entry.startsWith('sdk') || !(await transcriptsAllowed($)) || !(await read($, reqsA)).length) return
+  if ((await $.store.get(key).catch(() => undefined)) === RELEASE.version) return
+  const said = await refreshCommand($)
+  if (said.startsWith('Could not')) return // tried again next time the session opens
+  await $.store.set(key, RELEASE.version)
+  if (!said.includes('already matches')) await $.ui.toast(`Praetorium: ${said}`)
+}
+
 async function refreshCommand($: $T): Promise<string> {
   if (!(await transcriptsAllowed($))) {
     await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
@@ -1177,6 +1192,7 @@ export const register: Register = on => {
     }
     if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
     $.clock.after(5000, () => void autoImport($).catch(() => undefined))
+    $.clock.after(8000, () => void rejudgeOnce($).catch(() => undefined))
     $.clock.every(700, () => {
       void pollInbox($).catch(() => undefined)
       void heartbeat($)
@@ -1542,10 +1558,11 @@ export const register: Register = on => {
     )
 
     // ----- activity -----
-    // An open requirement narrows the activity to its own (once events carry links).
-    const forReq = events.some(ev => ev.reqIds) ? view.selectedReq : undefined
+    // An open requirement narrows the activity to its own.
+    const forReq = view.selectedReq
+    const linkOf = linker(reqs)
     const shown = events.filter(ev => {
-      if (forReq && !ev.reqIds?.includes(forReq)) return false
+      if (forReq && !linkOf(ev).includes(forReq)) return false
       const f: Filter = view.filter
       if (f === 'all') return true
       if (f === 'code') return ev.kind === 'code'

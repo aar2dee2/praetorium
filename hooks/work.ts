@@ -1,7 +1,7 @@
 // Pure helpers for what the agent does: plan steps and the requirements they serve,
 // preview links in command output, and readable failure text.
 
-import type { PlanStep, Requirement } from '../types'
+import type { ActivityEvent, PlanStep, Requirement } from '../types'
 
 const IDS = /\bR(\d+)\b/g
 const WORD = /[a-z0-9]{3,}/g
@@ -108,3 +108,37 @@ export function gapOf(r: Requirement, plan: PlanStep[] = []): string {
 // Files that may hold secrets: never copied for diffs (their diff opens the file instead).
 const SECRET = /(^|[\\/])(\.env(\..*)?|\.npmrc|\.netrc|\.pgpass|id_(rsa|ed25519|ecdsa)[^\\/]*|[^\\/]*\.(pem|key|p12|pfx)|credentials[^\\/]*|secrets?\.[a-z]+)$/i
 export const isSecretPath = (file: string) => SECRET.test(file)
+
+// ---------- which requirements an event was for ----------
+
+// Events carry the requirements their turn worked on. Ones recorded before that (or imported)
+// are placed by time: an event belongs to the turn your latest message before it started, and
+// that turn worked on what the message asked for or refined. `asks` are the times of all your
+// messages, when known, so a turn that only asked a question claims nothing.
+export function linker(reqs: Requirement[], asks: number[] = []): (ev: ActivityEvent) => string[] {
+  // Requirements captured from one message are saved a few milliseconds apart: times within a
+  // few seconds of each other (and not split by another message) are one message.
+  const marks = [
+    ...asks.map(at => ({ at, id: '' })),
+    ...reqs.flatMap(r => r.history.filter(h => h.by !== 'agent').map(h => ({ at: h.at, id: r.id }))),
+  ].sort((a, b) => a.at - b.at)
+  const byTime = new Map<number, string[]>()
+  let start = -Infinity
+  for (const m of marks) {
+    if (m.at - start > 5000 || (!m.id && m.at !== start)) start = m.at
+    const ids = byTime.get(start) ?? []
+    byTime.set(start, m.id ? [...ids, m.id] : ids)
+  }
+  const starts = [...byTime.keys()]
+  return ev => {
+    if (ev.reqIds) return ev.reqIds
+    let lo = 0
+    let hi = starts.length - 1
+    let start: number | undefined
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if ((starts[mid] ?? 0) <= ev.at) { start = starts[mid]; lo = mid + 1 } else hi = mid - 1
+    }
+    return start === undefined ? [] : [...new Set(byTime.get(start) ?? [])]
+  }
+}

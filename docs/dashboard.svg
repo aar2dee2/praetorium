@@ -11,7 +11,7 @@
 <text x="30.0" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">SESSIONS  4</text>
 <text x="284.2" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">REQUIREMENTS  6</text>
 <text x="407.2" y="60.5" fill="#6b7280" xml:space="preserve">  All                             </text>
-<text x="686.0" y="60.5" fill="#e6e8eb" font-weight="700" xml:space="preserve"> 1 Activity 4 </text>
+<text x="686.0" y="60.5" fill="#e6e8eb" font-weight="700" xml:space="preserve"> 1 Activity 5 </text>
 <text x="809.0" y="60.5" fill="#6b7280" xml:space="preserve"> 2 Plan 4 </text>
 <text x="899.2" y="60.5" fill="#6b7280" xml:space="preserve"> 3 Tests 2 </text>
 <text x="997.6" y="60.5" fill="#6b7280" xml:space="preserve"> 4 Prev…   </text>
@@ -29,17 +29,17 @@
 <text x="325.2" y="94.5" fill="#34d399" xml:space="preserve"> Verified                                   </text>
 <text x="686.0" y="94.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">for R1</text>
 <text x="735.2" y="94.5" fill="#6b7280" xml:space="preserve">  A all activity                           </text>
-<text x="1104.2" y="94.5" fill="#6b7280" xml:space="preserve">16:43 </text>
+<text x="1104.2" y="94.5" fill="#6b7280" xml:space="preserve">17:50 </text>
 <text x="1153.4" y="94.5" fill="#fbbf24" xml:space="preserve"> Found                                                                     </text>
 <rect x="30.0" y="99" width="229.6" height="17" fill="#1c2027"/>
 <rect x="284.2" y="99" width="377.2" height="17" fill="#1c2027"/>
 <text x="30.0" y="111.5" fill="#818cf8" xml:space="preserve">● </text>
 <text x="46.4" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Improve search results UI</text>
 <text x="317.0" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Show title, source and date on each result</text>
-<text x="702.4" y="111.5" fill="#6b7280" xml:space="preserve">16:48 </text>
+<text x="702.4" y="111.5" fill="#6b7280" xml:space="preserve">17:55 </text>
 <text x="751.6" y="111.5" fill="#fbbf24" xml:space="preserve">Test </text>
 <text x="792.6" y="111.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result               The search API returns dates in    </text>
-<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">16:05 Asked                                 </text>
+<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">17:12 Asked                                 </text>
 <rect x="30.0" y="116" width="229.6" height="17" fill="#1c2027"/>
 <rect x="325.2" y="116" width="90.2" height="17" fill="#342f1d"/>
 <rect x="423.6" y="116" width="82.0" height="17" fill="#342428"/>
@@ -48,13 +48,13 @@
 <text x="300.6" y="128.5" fill="#6b7280" xml:space="preserve">R2 </text>
 <text x="325.2" y="128.5" fill="#fbbf24" xml:space="preserve"> Re-verify </text>
 <text x="423.6" y="128.5" fill="#f87171" xml:space="preserve"> Conflict                       </text>
-<text x="702.4" y="128.5" fill="#6b7280" xml:space="preserve">16:27 </text>
+<text x="702.4" y="128.5" fill="#6b7280" xml:space="preserve">17:34 </text>
 <text x="751.6" y="128.5" fill="#818cf8" xml:space="preserve">Agent </text>
 <text x="800.8" y="128.5" fill="#e6e8eb" xml:space="preserve">I've replaced the tag styling w…       UTC, so results near midnight      </text>
 <text x="1407.6" y="128.5" fill="#a0a6b0" xml:space="preserve">  “Show title, source, date”                </text>
 <text x="30.0" y="145.5" fill="#34d399" xml:space="preserve">○ </text>
 <text x="46.4" y="145.5" fill="#e6e8eb" xml:space="preserve">Fix newsletter unsubscribe       Keep the existing tag colours                </text>
-<text x="702.4" y="145.5" fill="#6b7280" xml:space="preserve">16:26 </text>
+<text x="702.4" y="145.5" fill="#6b7280" xml:space="preserve">17:33 </text>
 <text x="751.6" y="145.5" fill="#818cf8" xml:space="preserve">Code change </text>
 <text x="850.0" y="145.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx          show the wrong day.                                                            </text>
 <rect x="325.2" y="150" width="164.0" height="17" fill="#342f1d"/>
@@ -62,14 +62,16 @@
 <text x="30.0" y="162.5" fill="#e6e8eb" xml:space="preserve">  bug                          </text>
 <text x="300.6" y="162.5" fill="#6b7280" xml:space="preserve">R3 </text>
 <text x="325.2" y="162.5" fill="#fbbf24" xml:space="preserve"> Done, not verified                         </text>
-<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">16:11 </text>
+<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">17:18 </text>
 <text x="751.6" y="162.5" fill="#818cf8" xml:space="preserve">Plan </text>
 <text x="792.6" y="162.5" fill="#e6e8eb" xml:space="preserve">Plan updated                        </text>
-<text x="1104.2" y="162.5" fill="#6b7280" xml:space="preserve">16:35 </text>
+<text x="1104.2" y="162.5" fill="#6b7280" xml:space="preserve">17:42 </text>
 <text x="1153.4" y="162.5" fill="#f87171" xml:space="preserve"> Failed </text>
 <text x="1219.0" y="162.5" fill="#6b7280" xml:space="preserve"> R2                    In the plan                                 </text>
 <text x="46.4" y="179.5" fill="#34d399" xml:space="preserve">1/1 verified                 </text>
-<text x="284.2" y="179.5" fill="#e6e8eb" xml:space="preserve">    Show a one or two line summary                                                                    Bash: 2 tests failed in            </text>
+<text x="284.2" y="179.5" fill="#e6e8eb" xml:space="preserve">    Show a one or two line summary               </text>
+<text x="702.4" y="179.5" fill="#6b7280" xml:space="preserve">17:16 Discovery </text>
+<text x="833.6" y="179.5" fill="#e6e8eb" xml:space="preserve">Read SearchResult.tsx              Bash: 2 tests failed in            </text>
 <text x="1407.6" y="179.5" fill="#a0a6b0" xml:space="preserve">  ✓ [R1] Title, source and date             </text>
 <rect x="325.2" y="184" width="106.6" height="17" fill="#23273b"/>
 <text x="300.6" y="196.5" fill="#6b7280" xml:space="preserve">R4 </text>
@@ -83,7 +85,7 @@
 <text x="30.0" y="230.5" fill="#34d399" xml:space="preserve">○ </text>
 <text x="46.4" y="230.5" fill="#e6e8eb" xml:space="preserve">Add country filter to news   </text>
 <text x="300.6" y="230.5" fill="#6b7280" xml:space="preserve">R5  Not started                                                                                 </text>
-<text x="1104.2" y="230.5" fill="#6b7280" xml:space="preserve">16:27 </text>
+<text x="1104.2" y="230.5" fill="#6b7280" xml:space="preserve">17:34 </text>
 <text x="1153.4" y="230.5" fill="#f87171" xml:space="preserve"> Conflict </text>
 <text x="1235.4" y="230.5" fill="#6b7280" xml:space="preserve"> R2                                                              </text>
 <text x="30.0" y="247.5" fill="#e6e8eb" xml:space="preserve">  page                             Make the layout more compact                                                                      The agent's work goes against      </text>
