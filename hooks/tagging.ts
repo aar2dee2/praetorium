@@ -1,13 +1,16 @@
 // Tagging a prompt into requirements. Pure, so the live check (scripts/live-check.mjs)
 // sends the model exactly what the mod sends.
 
-export type Tagged = { title: string; quote: string; refines: string | null }
+export type Tagged = { title: string; quote: string; refines: string | null; conflicts?: string | null; conflict_reason?: string }
 
 export const TAG_SYSTEM =
   'You split a developer\'s message to a coding agent into atomic, checkable requirements. ' +
-  'Reply with JSON only: {"items":[{"title":string,"quote":string,"refines":string|null}]}. ' +
+  'Reply with JSON only: {"items":[{"title":string,"quote":string,"refines":string|null,"conflicts":string|null,"conflict_reason":string}]}. ' +
   'title: imperative, at most 12 words. quote: the exact words from the message it comes from. ' +
-  'refines: the id of an existing requirement this changes or corrects, else null. ' +
+  'refines: the id of an existing requirement ONLY when this message explicitly revises that same requirement (same feature, new detail or correction). ' +
+  'A different feature is a new item (refines null), even when it is related or touches the same screen. When in doubt, refines is null. ' +
+  'conflicts: the id of an existing requirement this message contradicts (asks for the opposite, or for something both cannot be true at once), else null; ' +
+  'conflict_reason: one short sentence saying what clashes. A refinement that simply replaces the old wording is not a conflict. ' +
   'Read the message in the light of the agent\'s previous reply when one is given: it is usually a reaction to it. ' +
   'A request phrased as a question ("how do I make it…", "can we…", "could you…", "why isn\'t X…") IS a requirement: state the outcome the user wants. ' +
   '"Can we not get X", "couldn\'t we X", "why not X" and "shouldn\'t it X" ask FOR X: the title is X, never its opposite. ' +
@@ -73,4 +76,38 @@ export function parseBackfill(reply: string, count: number): BackfillItem[] {
     })
   }
   return items.filter(i => typeof i.title === 'string' && i.title.trim() && Number.isInteger(i.msg) && i.msg >= 1 && i.msg <= count)
+}
+
+// ---------- after each turn: what the agent found, and whether it went against a requirement ----------
+
+export type TurnReview = {
+  findings: { text: string }[]
+  conflicts: { id: string; reason: string }[]
+}
+
+export const REVIEW_SYSTEM =
+  'You review a coding agent\'s report to its user for things the user would want to act on and might miss in a long chat. ' +
+  'Reply with JSON only: {"findings":[{"text":string}],"conflicts":[{"id":string,"reason":string}]}. ' +
+  'findings: at most 4, each one sentence: something new, surprising or unexpected the agent discovered (a bug elsewhere, a wrong assumption, ' +
+  'a risky state, data loss, a limitation it hit, a decision it made that the user did not ask for, something it could not do). ' +
+  'Not findings: routine progress ("I edited X", "tests pass"), plans, or restating the request. ' +
+  'conflicts: requirements (by id) that what the agent did or decided goes against, with a one-sentence reason. ' +
+  'Reply {"findings":[],"conflicts":[]} when there is nothing.'
+
+export function reviewPrompt(reqs: { id: string; title: string }[], answer: string): string {
+  const list = reqs.length ? reqs.map(r => `${r.id}: ${r.title}`).join('\n') : '(none)'
+  return `Requirements:\n${list}\n\nThe agent's report:\n${answer.slice(-6000)}`
+}
+
+export function parseReview(reply: string): TurnReview {
+  try {
+    const json = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)
+    const r = JSON.parse(json) as Partial<TurnReview>
+    return {
+      findings: (r.findings ?? []).filter(f => typeof f?.text === 'string' && f.text.trim()).slice(0, 4),
+      conflicts: (r.conflicts ?? []).filter(c => typeof c?.id === 'string' && typeof c?.reason === 'string'),
+    }
+  } catch {
+    return { findings: [], conflicts: [] }
+  }
 }

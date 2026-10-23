@@ -16,6 +16,14 @@ describe('ledger', () => {
       expect(await ui.find({ type: 'Text', text: /No activity yet/ })).toBeDefined()
       await ui.press({ key: 'tab-audit' })
       expect(await ui.find({ type: 'Text', text: /does not count/ })).toBeDefined()
+      await ui.press({ key: 'tab-signals' })
+      expect(await ui.find({ type: 'Text', text: /Nothing to act on/ })).toBeDefined()
+      await ui.press({ key: 'tab-plan' })
+      expect(await ui.find({ type: 'Text', text: /No plan yet/ })).toBeDefined()
+      await ui.press({ key: 'tab-tests' })
+      expect(await ui.find({ type: 'Text', text: /No test, build or check runs/ })).toBeDefined()
+      await ui.press({ key: 'tab-preview' })
+      expect(await ui.find({ type: 'Text', text: /No previews yet/ })).toBeDefined()
       await ui.press({ key: 'tab-reqs' })
       await ui.unmount()
     }
@@ -31,6 +39,7 @@ describe('ledger wide', () => {
         props: { title: 'Ledger', isFocused: false, bodyColumns: 196, placement: 'dock' },
       } as never)
       expect(await ui.find({ type: 'Text', text: /Completion audit/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /Signals \(0\)/ })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /No activity yet/ })).toBeDefined()
       await ui.unmount()
     }

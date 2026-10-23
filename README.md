@@ -9,6 +9,10 @@ Praetorium keeps those apart:
 - **Requirements ledger.** Each prompt you send is split into separate requirements (R1, R2…) by Claude Haiku, with your exact words kept. A later correction is linked to the requirement it changes; nothing is silently overwritten. You don't label anything.
 - **Activity stream.** Edits, commands, tests, plans and the agent's messages, each with a stable id. Reply to any one of them as a **comment** (the agent never sees it), a **new or refined requirement**, or an **instruction** to the agent, optionally interrupting it first. Each reply shows whether the agent has received it.
 - **Completion audit.** A requirement counts as verified only with evidence: a passing test or build run after the last edit, or your own acceptance. The agent saying it's done doesn't count.
+- **Signals.** Tool calls that failed or were refused, and things the agent found that were new or unexpected, collected in one column so you don't have to dig through the chat. Reply to one, make it a requirement, or dismiss it.
+- **Conflicts.** When a later message contradicts an earlier requirement, or the agent's work goes against one, the requirement is flagged until you resolve it, and the agent is told to ask you which wins.
+- **Plan, Tests and Preview.** The agent's todo list with each step linked to the requirements it serves (and the requirements it leaves out), every test or build run with the requirements it's evidence for, and local dev servers or preview links its commands printed.
+- **Search and filters** for requirements: open, done but not verified, verified, conflicts, yours or the agent's.
 - **Diffs where you read code.** Opens a change in Cursor, VS Code or Windsurf, or as a diff in the terminal. No diffs are drawn in the ledger itself.
 
 It shows up in two places: a pane inside the session, and a window in your own terminal that lists every Claude Code session running Praetorium.
@@ -21,7 +25,9 @@ Open Claude Code and paste this. Claude does the rest.
 
 It works in the Claude Code terminal app and in the Claude desktop app's Code tab, on macOS, Windows and Linux.
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with plugin hooks. For the terminal window: [Node.js](https://nodejs.org/) 18 or newer. For diffs: [Git](https://git-scm.com/).
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with plugin hooks. For diffs: [Git](https://git-scm.com/). Nothing else: no Node, no Python.
+
+The plugin runs inside Claude Code. The terminal window and the transcript importer are one small standalone program (`praetorium`, built with Bun for macOS, Windows and Linux). The first time you run `/ledger window`, Praetorium tells you its size and asks you to run `/ledger install`, which downloads it from this repository's releases, checks it against the SHA-256 recorded in the plugin, and keeps it in `~/.claude/praetorium/bin`.
 
 ### Update
 
@@ -39,6 +45,7 @@ It works in the Claude Code terminal app and in the Claude desktop app's Code ta
 | `/ledger wide` · `/ledger narrow` | Ask for a wide pane (three columns side by side) or a narrow one (tabs) |
 | `/ledger window` | Open the ledger in a terminal window, across all your sessions. If it's already open, it switches to this session instead |
 | `/ledger window <terminal>` | Open it in a specific terminal, and remember the choice |
+| `/ledger install` | Download the window's program (once, checksum-verified) |
 | `/ledger theme` | Show the current theme and the presets |
 | `/ledger theme <preset>` | `graphite` (default), `paper`, `telborg` |
 | `/ledger theme import <source>` | Build a theme from your brand (below) |
@@ -61,19 +68,25 @@ There's one window for all sessions. It picks up new and imported sessions as th
 
 | Key | Does |
 |---|---|
-| Tab · ←/→ | Move between Sessions, Requirements and Activity |
+| Tab · ←/→ | Move between columns |
 | ↑/↓ | Move the selection |
 | `[` · `]` | Previous / next session |
+| `S` | Show or hide the Sessions column, for more room on one session |
+| `1`–`5` | Activity, Plan, Tests, Preview, Signals |
+| `/` · `F` | Search requirements · cycle the filter |
 | `c` or Enter | Comment on the selected event (the agent doesn't see it) |
-| `n` | New requirement |
+| `n` | New requirement (on a signal: make the signal one) |
 | `f` | Refine the selected requirement |
 | `i` | Instruction to the agent · Ctrl-T while typing interrupts it first |
+| `x` | Resolve a requirement's conflict · dismiss a signal |
 | `o` · `t` | Open the change's diff in your editor · in the terminal |
 | `a` · `d` | Accept a requirement as verified · defer it |
 | `g` | Ask the agent to close every open gap |
 | `v` | All events, or key events only |
-| `l` | Light or dark |
+| `l` · `h` | Light or dark · show headless (`claude -p`) sessions |
 | `q` | Quit |
+
+Sessions are named as Claude Code names them and grouped by project. Only running sessions accept replies; one that has stopped says so instead of taking a message nobody will read.
 
 ## Sessions from before Praetorium
 
@@ -117,7 +130,8 @@ Missing colours come from the default theme, and any colour too faint to read on
 
 - One short Claude Haiku call per prompt you send, to tag requirements. It also reads the agent's previous reply (up to 1,500 characters), because a message like "can we not get X?" only reads one way in context. Theme imports make one more call.
 - About 150 tokens of tool description on each request, for the `ledger` tool the agent uses to report progress and evidence.
-- No database and no files in your projects. Each session's ledger lives in Claude Code's session state, with a copy in the plugin's own store so it survives a restart. The terminal window reads a per-session file in your system temp folder (`praetorium/`), which also holds the pre-edit copies used for diffs.
+- One more Haiku call per agent turn with a long reply, to pick out findings worth acting on and check the work against your requirements.
+- No database and no files in your projects. Each session's ledger lives in Claude Code's session state, with a copy in `~/.claude/praetorium/` (one small file per session, dropped after 30 days unused) that the terminal window reads. Pre-edit copies used for diffs go to your system temp folder.
 
 ## How it works
 
@@ -128,8 +142,8 @@ Praetorium is a Claude Code plugin made of function hooks (`hooks/register.tsx`)
 - `turn.start` / `turn.complete` track whether the agent is working and record its answers.
 - The `ledger` tool lets the agent mark progress; `verified` is refused without a passing check after the last edit.
 - Replies reach the agent inside its running turn, start a new turn, or wait for your next prompt; an interrupt cancels the turn first.
-- `viewer/ledger-view.mjs` is the terminal window: plain Node, no dependencies. It reads the state files and writes your actions to an inbox file the session polls.
-- `viewer/import.mjs` streams transcripts for `/ledger import`, keeping only prompts, replies and tool-call names and paths; `hooks/tagging.ts` holds the prompts that turn messages into requirements.
+- `viewer/` is the `praetorium` program (`cli.mjs`): the terminal window (`ledger-view.mjs`), which reads the state files and writes your actions to an inbox the session polls; the transcript importer (`import.mjs`); and the diff view. `scripts/build.ts` compiles it per platform and records the checksums in `hooks/release.ts`.
+- `hooks/tagging.ts` holds the prompts that turn messages into requirements and review each turn; `hooks/work.ts` links plan steps, finds preview links and filters requirements, shared by the pane and the window.
 
 ## Develop
 
@@ -152,22 +166,26 @@ claude plugin validate .
 claude plugin test .
 ```
 
-Live checks against the real model and your machine (Node 22.18+, Claude Code signed in):
+```bash
+bun scripts/build.ts
+```
+
+With [Bun](https://bun.sh) installed, Praetorium runs the window from source instead of a downloaded build. Live checks against the real model and your machine (Claude Code signed in):
 
 ```bash
-node scripts/live-check.mjs tagging
+bun scripts/live-check.mjs tagging
 ```
 
 ```bash
-node scripts/live-check.mjs theme https://yourcompany.com
+bun scripts/live-check.mjs theme https://yourcompany.com
 ```
 
 ```bash
-node scripts/live-check.mjs terminal iterm
+bun scripts/live-check.mjs terminal iterm
 ```
 
 ```bash
-node scripts/live-check.mjs import <session id>
+bun scripts/live-check.mjs import <session id>
 ```
 
 ## License

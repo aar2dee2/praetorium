@@ -8,14 +8,24 @@ import type {
   Filter,
   Reply,
   ReplyMode,
+  PlanStep,
+  Preview,
+  ReqFilter,
   ReqStatus,
   Requirement,
+  Signal,
+  SignalKind,
   Theme,
   View,
 } from '../types'
-import { BACKFILL_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseTagged, tagPrompt } from './tagging'
+import {
+  BACKFILL_SYSTEM, REVIEW_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseReview, parseTagged, reviewPrompt, tagPrompt,
+} from './tagging'
 import type { PastPrompt, Tagged } from './tagging'
-import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand } from './platform'
+import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, planFrom, previewUrls } from './work'
+import type { ReqFilterName } from './work'
+import { RELEASE } from './release'
+import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand, programName } from './platform'
 import type { Editor, OS, Platform, Terminal } from './platform'
 import {
   DEFAULT_THEME, IMPORT_SYSTEM, PRESETS, colourLines, normalizeTheme, ownThemeFile, pageParts, palette, sourceKind, themeFromReply, toneBg, toneFg,
@@ -47,6 +57,9 @@ const turnA = atom({ plugin: 'praetorium', key: 'turnId' } as const, '')
 const inboxSeqA = atom({ plugin: 'praetorium', key: 'inboxSeq' } as const, 0)
 const titleA = atom({ plugin: 'praetorium', key: 'title' } as const, '')
 const themeA = atom({ plugin: 'praetorium', key: 'theme' } as const, DEFAULT_THEME)
+const signalsA = atom({ plugin: 'praetorium', key: 'signals' } as const, [] as Signal[])
+const planA = atom({ plugin: 'praetorium', key: 'plan' } as const, [] as PlanStep[])
+const previewsA = atom({ plugin: 'praetorium', key: 'previews' } as const, [] as Preview[])
 
 const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
   captured: { label: 'Not started', tone: 'muted' },
@@ -77,16 +90,17 @@ const DELIVERY: Record<Delivery, string> = {
 
 // Found on the machine at session start; module state is fine because
 // session.start runs again on every reload.
-let plat: Platform = { os: 'mac', tmp: '/tmp/praetorium', node: '', editors: [] }
+let plat: Platform = { os: 'mac', tmp: '/tmp/praetorium', data: '', runner: [], editors: [] }
 let storeKey = ''
 let sessionId = ''
 let project = ''
+let entry = '' // how the session was started: claude-desktop, cli, sdk-cli (headless)…
 let hasEnded = false
-const stateFile = () => join(plat.tmp, `state-${sessionId}.json`)
-const inboxFile = () => join(plat.tmp, `inbox-${sessionId}.jsonl`)
+let tmpRoot = ''
+const stateFile = () => join(plat.data, `state-${sessionId}.json`)
+const inboxFile = () => join(plat.data, `inbox-${sessionId}.jsonl`)
 const snapOf = (ev: ActivityEvent) => join(plat.tmp, `${ev.id}-${base(ev.file ?? '')}`)
-const viewerArgs = (...rest: string[]) => [plat.node, join($root, 'viewer/ledger-view.mjs'), ...rest]
-let $root = ''
+const programArgs = (...rest: string[]) => [...plat.runner, ...rest]
 
 const now = () => Date.now()
 const hhmm = (t: number) => {
@@ -96,17 +110,20 @@ const hhmm = (t: number) => {
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 const nextId = (reqs: Requirement[]) => `R${reqs.length + 1}`
 const uid = () => `${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const isDone = (r: Requirement) => (r.status === 'verified' && !r.needsReverify) || r.status === 'deferred'
 
 // The terminal window reads this file; it holds nothing the session state doesn't.
 async function mirror($: $T) {
   if (!sessionId) return
   try {
-    const [reqs, replies, events, turnId, title, theme, view] = await Promise.all([
+    const [reqs, replies, events, turnId, title, theme, view, signals, plan, previews] = await Promise.all([
       read($, reqsA), read($, repliesA), read($, eventsA), read($, turnA), read($, titleA), read($, themeA), read($, viewA),
+      read($, signalsA), read($, planA), read($, previewsA),
     ])
     await $.fs.write(stateFile(), JSON.stringify({
-      sessionId, project, title, hasEnded,
-      reqs, replies, events: events.slice(-200), isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: now(),
+      sessionId, project, title, hasEnded, entry,
+      reqs, replies, events: events.slice(-200), signals: signals.slice(-100), plan, previews,
+      isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: now(),
     }))
   } catch {
     // the window just shows the last state it read
@@ -117,8 +134,8 @@ async function save($: $T) {
   await mirror($)
   if (!storeKey) return
   try {
-    const [reqs, replies, events] = await Promise.all([read($, reqsA), read($, repliesA), read($, eventsA)])
-    await $.store.set(storeKey, { reqs, replies, events: events.slice(-150) })
+    const [reqs, replies, events, signals, plan] = await Promise.all([read($, reqsA), read($, repliesA), read($, eventsA), read($, signalsA), read($, planA)])
+    await $.store.set(storeKey, { reqs, replies, events: events.slice(-150), signals: signals.slice(-60), plan })
     const keys = (await $.store.keys()).filter(k => k.startsWith('s:'))
     for (const k of keys.slice(0, Math.max(0, keys.length - 20))) await $.store.delete(k)
   } catch {
@@ -136,6 +153,29 @@ async function patchEvent($: $T, id: string, patch: Partial<ActivityEvent>) {
   await mirror($)
 }
 
+async function addSignal($: $T, kind: SignalKind, text: string, link: { eventId?: string; reqId?: string } = {}) {
+  await update($, signalsA, list => [...list, { id: uid(), kind, at: now(), text, ...link }].slice(-150))
+  await mirror($)
+}
+
+async function review($: $T, answer: string, eventId: string) {
+  try {
+    const reqs = (await read($, reqsA)).filter(r => r.status !== 'deferred')
+    const res = await $.model.complete({ model: HAIKU, system: REVIEW_SYSTEM, prompt: reviewPrompt(reqs, answer), maxTokens: 1200 })
+    if (!res.isAnswered) return
+    const { findings, conflicts: against } = parseReview(res.text)
+    for (const f of findings) await addSignal($, 'finding', f.text, { eventId })
+    for (const c of against) {
+      if (!reqs.some(r => r.id === c.id)) continue
+      await update($, reqsA, (list): Requirement[] => list.map(r => (r.id === c.id ? { ...r, conflict: { reason: c.reason, at: now(), source: 'agent' } } : r)))
+      await addSignal($, 'conflict', `The agent's work goes against ${c.id}: ${c.reason}`, { eventId, reqId: c.id })
+    }
+    await save($)
+  } catch {
+    // no review this turn
+  }
+}
+
 // ---------- requirement tagging (Haiku) ----------
 
 async function tag($: $T, text: string, reqs: Requirement[]): Promise<Tagged[]> {
@@ -144,14 +184,22 @@ async function tag($: $T, text: string, reqs: Requirement[]): Promise<Tagged[]> 
   return res.isAnswered ? parseTagged(res.text) : []
 }
 
+const conflicts: { id: string; reason: string }[] = []
+
 async function capture($: $T, text: string): Promise<string[]> {
   const reqs = await read($, reqsA)
   const tagged = await tag($, text, reqs)
   if (!tagged.length) return []
   const touched: string[] = []
+  conflicts.length = 0
   await update($, reqsA, list => {
     let out = [...list]
     for (const t of tagged) {
+      const clash = t.conflicts ? out.find(r => r.id === t.conflicts) : undefined
+      if (clash && t.conflict_reason) {
+        conflicts.push({ id: clash.id, reason: t.conflict_reason })
+        out = out.map(r => (r.id === clash.id ? { ...r, conflict: { reason: t.conflict_reason ?? '', at: now(), source: 'you' as const } } : r))
+      }
       const target = t.refines ? out.find(r => r.id === t.refines) : undefined
       const version = { at: now(), text: t.quote || t.title, kind: target ? 'refinement' : 'original', by: 'you' } as const
       if (target) {
@@ -170,6 +218,7 @@ async function capture($: $T, text: string): Promise<string[]> {
     }
     return out
   })
+  for (const c of conflicts) await addSignal($, 'conflict', `Your message conflicts with ${c.id}: ${c.reason}`, { reqId: c.id })
   return touched
 }
 
@@ -206,6 +255,11 @@ function describe(e: Record<string, unknown>, when?: number): ActivityEvent | un
       const detail = todos.map(t => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '›' : '·'} ${t.content ?? ''}`).join('\n')
       return { id, kind: 'plan', at, title: 'Plan updated', detail }
     }
+    case 'mcp__ccd_turn__update_plan': {
+      const items = Array.isArray(e.items) ? (e.items as { content?: string; status?: string }[]) : []
+      const detail = items.map(t => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '›' : '·'} ${t.content ?? ''}`).join('\n')
+      return { id, kind: 'plan', at, title: 'Plan updated', detail }
+    }
     case 'ExitPlanMode':
       return { id, kind: 'plan', at, title: 'Plan proposed', detail: clip(s('plan'), 1500) }
     case 'Agent':
@@ -233,8 +287,8 @@ async function openDiff($: $T, ev: ActivityEvent, how: string) {
   const hasSnap = await $.fs.exists(snap).catch(() => false)
   if (how === 'terminal') {
     const term = await chosenTerminal($)
-    if (!term || !plat.node) return void $.ui.toast('No terminal or Node found for the diff.')
-    const err = await openIn($, term, viewerArgs('--diff', hasSnap ? snap : '', ev.file), 'Praetorium diff')
+    if (!term || !plat.runner.length) return void $.ui.toast('The Praetorium program is not installed: run /ledger install.')
+    const err = await openIn($, term, programArgs('diff', hasSnap ? snap : '', ev.file), 'Praetorium diff')
     if (err) await $.ui.toast(`Could not open the diff: ${err}`)
     return
   }
@@ -271,45 +325,32 @@ async function which($: $T, os: OS, name: string): Promise<string> {
   return ''
 }
 
-// Apps started from the Dock or Start menu (the desktop app) get a minimal PATH,
-// so after PATH, look where Node installers put it.
-async function findNode($: $T, os: OS): Promise<string> {
-  const onPath = await which($, os, 'node')
-  if (onPath) return onPath
-  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''
-  const fixed = os === 'windows'
-    ? ['C:/Program Files/nodejs/node.exe', join(home, 'AppData/Roaming/nvm/current/node.exe'), join(home, '.volta/bin/node.exe')]
-    : ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node', join(home, '.volta/bin/node'), join(home, '.local/share/mise/shims/node'), join(home, '.asdf/shims/node')]
-  for (const bin of fixed) if (await $.fs.exists(bin).catch(() => false)) return bin
-  // nvm: the newest installed version
-  const nvm = join(home, '.nvm/versions/node')
-  const versions = (await $.fs.list(nvm).catch(() => []))
-    .map(v => v.name)
-    .filter(v => /^v\d+\.\d+\.\d+$/.test(v))
-    .sort((a, b) => {
-      const pa = a.slice(1).split('.').map(Number)
-      const pb = b.slice(1).split('.').map(Number)
-      return (pb[0]! - pa[0]!) || (pb[1]! - pa[1]!) || (pb[2]! - pa[2]!)
-    })
-  for (const v of versions) {
-    const bin = join(nvm, v, 'bin/node')
-    if (await $.fs.exists(bin).catch(() => false)) return bin
-  }
-  return ''
+// The praetorium program (window, importer, diff): the downloaded release for this
+// machine, or, when developing Praetorium, its source run with Bun.
+async function findProgram($: $T, os: OS, data: string): Promise<string[]> {
+  const arch = firstLine((await run($, os === 'windows' ? ['cmd', '/c', 'echo', '%PROCESSOR_ARCHITECTURE%'] : ['uname', '-m']))?.stdout)
+  const bin = join(data, 'bin', `${RELEASE.version}-${programName(os, arch)}`)
+  if (await $.fs.exists(bin).catch(() => false)) return [bin]
+  const source = join($.plugin.root, 'viewer/cli.mjs')
+  const bun = await which($, os, 'bun')
+  if (bun && (await $.fs.exists(source).catch(() => false))) return [bun, source]
+  return []
 }
 
 async function detect($: $T): Promise<Platform> {
   const isWindows = (await $.env.get('OS')) === 'Windows_NT'
   const os: OS = isWindows ? 'windows' : firstLine((await run($, ['uname', '-s']))?.stdout) === 'Darwin' ? 'mac' : 'linux'
-  const tmpRoot = isWindows
+  tmpRoot = isWindows
     ? (await $.env.get('TEMP')) || (await $.env.get('TMP')) || 'C:/Windows/Temp'
     : (await $.env.get('TMPDIR')) || '/tmp'
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) || join((await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || '', '.claude')
+  const data = join(config, 'praetorium')
   const editors: Editor[] = []
   for (const [name, cmd, macBin] of EDITORS) {
     const bin = os === 'mac' && (await $.fs.exists(macBin).catch(() => false)) ? macBin : await which($, os, cmd)
     if (bin) editors.push({ name, bin })
   }
-  return { os, tmp: join(tmpRoot, 'praetorium'), node: await findNode($, os), editors }
+  return { os, tmp: join(tmpRoot, 'praetorium'), data, runner: await findProgram($, os, data), editors }
 }
 
 async function installedTerminals($: $T): Promise<Terminal[]> {
@@ -456,25 +497,13 @@ async function deferReq($: $T, id: string) {
   await save($)
 }
 
-function gapOf(r: Requirement): string {
-  if (r.needsReverify) return 'Changed after it was done; check it again'
-  switch (r.status) {
-    case 'verified': return ''
-    case 'implemented': return 'Agent says done; no passing check yet'
-    case 'captured': return 'Not in the agent\'s work yet'
-    case 'in_progress': return 'Still in progress'
-    case 'blocked': return 'Blocked'
-    case 'needs_clarification': return 'Waiting on you'
-    case 'deferred': return ''
-  }
-}
-
 async function askGaps($: $T): Promise<number> {
-  const open = (await read($, reqsA)).filter(r => gapOf(r))
+  const plan = await read($, planA)
+  const open = (await read($, reqsA)).filter(r => gapOf(r, plan))
   if (open.length) {
     await deliver(
       $,
-      `[Ledger] Before calling this done, close these gaps and report each with the ${TOOL} tool:\n${open.map(r => `${r.id} ${r.title}: ${gapOf(r)}`).join('\n')}`,
+      `[Ledger] Before calling this done, close these gaps and report each with the ${TOOL} tool:\n${open.map(r => `${r.id} ${r.title}: ${gapOf(r, plan)}`).join('\n')}`,
       { interrupt: false, start: true },
     )
   }
@@ -485,8 +514,32 @@ async function askGaps($: $T): Promise<number> {
 
 type InboxCommand =
   | { seq: number; type: 'reply'; eventId?: string; text: string; mode: ReplyMode; refines?: string; interrupt?: boolean }
-  | { seq: number; type: 'accept' | 'defer'; reqId: string }
+  | { seq: number; type: 'accept' | 'defer' | 'resolve'; reqId: string }
+  | { seq: number; type: 'detach'; reqId: string; index: number }
+  | { seq: number; type: 'dismiss'; signalId: string }
   | { seq: number; type: 'gaps' }
+
+// A conflict is settled by the person, not the agent: this clears the flag and its signals.
+async function resolveConflict($: $T, id: string) {
+  await update($, reqsA, (list): Requirement[] => list.map(r => (r.id === id ? { ...r, conflict: undefined } : r)))
+  await update($, signalsA, list => list.map(x => (x.kind === 'conflict' && x.reqId === id ? { ...x, dismissed: true } : x)))
+  await save($)
+}
+
+// A message wrongly linked as a refinement becomes its own requirement, history intact.
+async function detachRefinement($: $T, id: string, index: number): Promise<string> {
+  let made = ''
+  await update($, reqsA, (list): Requirement[] => {
+    const req = list.find(r => r.id === id)
+    const moved = req?.history[index]
+    if (!req || !moved || index === 0 || moved.kind !== 'refinement') return list
+    made = nextId(list)
+    const rest = list.map(r => (r.id === id ? { ...r, history: r.history.filter((_, i) => i !== index), needsReverify: undefined } : r))
+    return [...rest, { id: made, title: clip(moved.text, 90), status: 'captured', at: moved.at, history: [{ ...moved, kind: 'original' }], evidence: [] }]
+  })
+  await save($)
+  return made ? `Moved that message out of ${id} into its own requirement, ${made}.` : `Nothing to detach at ${id} #${index}.`
+}
 
 async function pollInbox($: $T) {
   if (!sessionId || !(await $.fs.exists(inboxFile()).catch(() => false))) return
@@ -512,10 +565,23 @@ async function pollInbox($: $T) {
       await acceptReq($, c.reqId)
     } else if (c.type === 'defer') {
       await deferReq($, c.reqId)
+    } else if (c.type === 'resolve') {
+      await resolveConflict($, c.reqId)
+    } else if (c.type === 'detach') {
+      await detachRefinement($, c.reqId, c.index)
+    } else if (c.type === 'dismiss') {
+      await update($, signalsA, list => list.map(x => (x.id === c.signalId ? { ...x, dismissed: true } : x)))
+      await save($)
     } else if (c.type === 'gaps') {
       await askGaps($)
     }
   }
+}
+
+// The window shows a session as running only while this is fresh.
+let beats = 0
+async function heartbeat($: $T) {
+  if (beats++ % 7 === 0 && sessionId && !hasEnded) await $.fs.write(join(plat.data, `alive-${sessionId}`), String(now())).catch(() => undefined)
 }
 
 async function chosenTerminal($: $T, wanted?: string): Promise<Terminal | undefined> {
@@ -525,7 +591,7 @@ async function chosenTerminal($: $T, wanted?: string): Promise<Terminal | undefi
 }
 
 async function openWindow($: $T, wanted: string): Promise<string> {
-  if (!plat.node) return 'Node.js was not found on this machine. Install Node 18 or newer, then try again.'
+  if (!plat.runner.length) return installOffer()
   const found = await installedTerminals($)
   const term = await chosenTerminal($, wanted)
   if (!term) return 'No supported terminal app was found.'
@@ -535,15 +601,65 @@ async function openWindow($: $T, wanted: string): Promise<string> {
   if (wanted) await $.store.set('terminal', term.id)
   await mirror($)
   // One window for every session: if it's open (fresh heartbeat), switch it here instead.
-  const beat = Number(await $.fs.read(join(plat.tmp, 'viewer.alive')).catch(() => '0'))
+  const beat = Number(await $.fs.read(join(plat.data, 'viewer.alive')).catch(() => '0'))
   if (!wanted && now() - beat < 3000) {
-    await $.fs.write(join(plat.tmp, 'viewer.focus'), sessionId)
+    await $.fs.write(join(plat.data, 'viewer.focus'), sessionId)
     return 'The Praetorium window is already open; it now shows this session. (/ledger window <terminal> opens another.)'
   }
-  const err = await openIn($, term, viewerArgs(plat.tmp, sessionId), 'Praetorium')
+  const err = await openIn($, term, programArgs('view', plat.data, sessionId, await projectsDir($)), 'Praetorium')
   return err
     ? `Could not open ${term.name}: ${err}`
     : `Praetorium opened in ${term.name}.${found.length > 1 ? ` Others: ${found.filter(t => t !== term).map(t => t.id).join(', ')} (/ledger window <name>).` : ''}`
+}
+
+// ---------- moving ledgers out of the temp folder (0.2 kept them there) ----------
+
+// Copies each ledger 0.2 left in the temp folder into the data folder, once, without
+// overwriting a newer one. Temp files are left for the system to clear.
+async function migrateLedgers($: $T) {
+  const marker = join(plat.data, 'migrated-0.3')
+  if (await $.fs.exists(marker).catch(() => true)) return
+  const have = new Set((await $.fs.list(plat.data).catch(() => [])).map(f => f.name))
+  for (const f of await $.fs.list(plat.tmp).catch(() => [])) {
+    if (!/^state-.+\.json$/.test(f.name) || have.has(f.name)) continue
+    const text = await $.fs.read(join(plat.tmp, f.name)).catch(() => '')
+    if (text) await $.fs.write(join(plat.data, f.name), text).catch(() => undefined)
+  }
+  await $.fs.write(marker, String(now())).catch(() => undefined)
+}
+
+// ---------- the praetorium program ----------
+
+// The window, importer and diff run as one small program, downloaded only when asked.
+function installOffer(): string {
+  return 'The Praetorium window needs its program: one file (60 to 115 MB depending on your system) from github.com/' + RELEASE.repo +
+    ' releases, checked against its SHA-256 before it runs, kept in ~/.claude/praetorium/bin. Nothing else is installed. Run /ledger install to download it.'
+}
+
+async function install($: $T): Promise<string> {
+  const arch = firstLine((await run($, plat.os === 'windows' ? ['cmd', '/c', 'echo', '%PROCESSOR_ARCHITECTURE%'] : ['uname', '-m']))?.stdout)
+  const name = programName(plat.os, arch)
+  const want = RELEASE.sha256[name]
+  if (!want) return `No build of Praetorium ${RELEASE.version} for this machine (${name}).`
+  const dir = join(plat.data, 'bin')
+  const bin = join(dir, `${RELEASE.version}-${name}`)
+  const part = `${bin}.part`
+  const url = `https://github.com/${RELEASE.repo}/releases/download/v${RELEASE.version}/${name}`
+  await $.fs.write(join(dir, '.keep'), '')
+  const got = await $.process.run(['curl', '-fsSL', '--retry', '2', '-o', part, url], { timeoutMs: 300_000 })
+  if (got.exitCode !== 0) return `Download failed: ${got.stderr.trim() || `curl exited with ${got.exitCode}`}`
+  const sum = plat.os === 'windows'
+    ? await $.process.run(['certutil', '-hashfile', part, 'SHA256'])
+    : await $.process.run(plat.os === 'mac' ? ['shasum', '-a', '256', part] : ['sha256sum', part])
+  const have = (sum.stdout.match(/\b[0-9a-f]{64}\b/i)?.[0] ?? '').toLowerCase()
+  if (have !== want) {
+    await run($, plat.os === 'windows' ? ['cmd', '/c', 'del', part.replace(/\//g, '\\')] : ['rm', '-f', part])
+    return `The download did not match its checksum, so it was deleted and not run (expected ${want.slice(0, 12)}…, got ${have.slice(0, 12) || 'nothing'}…).`
+  }
+  await run($, plat.os === 'windows' ? ['cmd', '/c', 'move', '/y', part.replace(/\//g, '\\'), bin.replace(/\//g, '\\')] : ['mv', '-f', part, bin])
+  if (plat.os !== 'windows') await run($, ['chmod', '+x', bin])
+  plat = { ...plat, runner: [bin] }
+  return `Installed Praetorium ${RELEASE.version} (${name}, checksum verified). /ledger window opens it.`
 }
 
 // ---------- themes ----------
@@ -604,9 +720,9 @@ async function projectsDir($: $T): Promise<string> {
 
 // Runs viewer/import.mjs, which streams the transcripts and keeps only what the ledger needs.
 async function readPast($: $T, args: string[]): Promise<PastSession[]> {
-  if (!plat.node) throw new Error('Node.js was not found')
+  if (!plat.runner.length) throw new Error('the Praetorium program is not installed (/ledger install)')
   const out = join(plat.tmp, `import-${sessionId}.json`)
-  const r = await $.process.run([plat.node, join($root, 'viewer/import.mjs'), await projectsDir($), out, ...args], { timeoutMs: 120_000 })
+  const r = await $.process.run(programArgs('import', await projectsDir($), out, ...args), { timeoutMs: 120_000 })
   if (r.exitCode !== 0) throw new Error(r.stderr.trim() || `import exited with ${r.exitCode}`)
   return JSON.parse(String(await $.fs.read(out))) as PastSession[]
 }
@@ -644,7 +760,7 @@ async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]
 }
 
 async function importSessions($: $T, days: number): Promise<string> {
-  const existing = (await $.fs.list(plat.tmp).catch(() => []))
+  const existing = (await $.fs.list(plat.data).catch(() => []))
     .map(f => /^state-(.+)\.json$/.exec(f.name)?.[1])
     .filter((x): x is string => Boolean(x))
   const past = await readPast($, ['--days', String(days), '--max', '12', '--skip', [...existing, sessionId].join(',')])
@@ -655,7 +771,7 @@ async function importSessions($: $T, days: number): Promise<string> {
     await Promise.all(past.slice(i, i + 4).map(async s => {
       const { reqs, events } = await ledgerOf($, s)
       tagged += reqs.length
-      await $.fs.write(join(plat.tmp, `state-${s.sessionId}.json`), JSON.stringify({
+      await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
         sessionId: s.sessionId, project: base(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
         imported: true, hasEnded: false, isWorking: false,
         reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
@@ -689,7 +805,7 @@ async function backfillSelf($: $T) {
 // from importing (and paying for) the same transcripts twice.
 async function autoImport($: $T) {
   if (!(await transcriptsAllowed($))) return
-  const lock = join(plat.tmp, 'import.lock')
+  const lock = join(plat.data, 'import.lock')
   const last = Number(await $.fs.read(lock).catch(() => '0'))
   if (now() - last < 10 * 60_000) return
   await $.fs.write(lock, String(now()))
@@ -704,7 +820,7 @@ async function importCommand($: $T, arg: string): Promise<string> {
   }
   if (arg === 'revoke') {
     await $.store.set('transcripts', 'declined')
-    return 'Praetorium will not read transcripts. Sessions already imported stay until your temp folder is cleared.'
+    return 'Praetorium will not read transcripts. Sessions already imported stay in the ledger.'
   }
   if (!(await transcriptsAllowed($))) {
     await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
@@ -719,12 +835,15 @@ async function importCommand($: $T, arg: string): Promise<string> {
 const TOOL_DESCRIPTION =
   'The user\'s requirements ledger (ids R1, R2…). Call it when you start or finish work on a requirement, ' +
   'when one is blocked or unclear, or to split one into smaller ones. ' +
-  'status "verified" is accepted only with test_command: a substring of a test/build command you ran that passed after your last edit; otherwise it is recorded as implemented.'
+  'status "verified" is accepted only with test_command: a substring of a test/build command you ran that passed after your last edit; otherwise it is recorded as implemented. ' +
+  'action "detach" (id, index) moves a message wrongly linked as a refinement of id out into its own requirement. ' +
+  'When you write a plan or todo list, start each item with the requirement ids it serves, like "[R2, R5] Add the search box", so the ledger can show which requirements the plan leaves out.'
 
 const TOOL_SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: ['update', 'add'] },
+    action: { type: 'string', enum: ['update', 'add', 'detach'] },
+    index: { type: 'number', description: 'For detach: the position of the message in the requirement history (1 or more)' },
     id: { type: 'string', description: 'Requirement id, for update' },
     status: { type: 'string', enum: ['in_progress', 'implemented', 'verified', 'blocked', 'needs_clarification'] },
     test_command: { type: 'string' },
@@ -751,6 +870,7 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
     await save($)
     return `Added ${id}.`
   }
+  if (s('action') === 'detach') return detachRefinement($, s('id'), Number(a.index))
   const reqs = await read($, reqsA)
   const req = reqs.find(r => r.id === s('id'))
   if (!req) return `No requirement ${s('id')}. Known: ${reqs.map(r => r.id).join(', ') || 'none'}.`
@@ -784,7 +904,7 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
 // A pane can only ask for a width; the person's own drag on the dock wins.
 const WIDE_COLUMNS = 400
 const NARROW_COLUMNS = 72
-const SIDE_BY_SIDE_AT = 130
+const SIDE_BY_SIDE_AT = 160
 
 async function openPane($: $T): Promise<string> {
   const width = (await $.store.get('width').catch(() => undefined)) === 'wide' ? 'wide' : 'narrow'
@@ -798,14 +918,19 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     try {
       sessionId = await $.session.id()
-      project = base(await $.session.root())
+      const root = await $.session.root()
+      // The app lists sessions without a project folder under "This computer".
+      project = /[\\/]scratch-workspaces[\\/]/.test(root) ? 'This computer' : base(root)
+      entry = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) ?? ''
       hasEnded = false
       storeKey = `s:${sessionId}`
-      const saved = (await $.store.get(storeKey)) as { reqs?: Requirement[]; replies?: Reply[]; events?: ActivityEvent[] } | undefined
+      const saved = (await $.store.get(storeKey)) as { reqs?: Requirement[]; replies?: Reply[]; events?: ActivityEvent[]; signals?: Signal[]; plan?: PlanStep[] } | undefined
       if (saved && (await read($, reqsA)).length === 0) {
         if (saved.reqs) await update($, reqsA, () => saved.reqs ?? [])
         if (saved.replies) await update($, repliesA, () => saved.replies ?? [])
         if (saved.events) await update($, eventsA, () => saved.events ?? [])
+        if (saved.signals) await update($, signalsA, () => saved.signals ?? [])
+        if (saved.plan) await update($, planA, () => saved.plan ?? [])
       }
       const dark = await $.store.get('dark')
       if (typeof dark === 'boolean') await update($, viewA, v => ({ ...v, dark }))
@@ -814,15 +939,16 @@ export const register: Register = on => {
     } catch {
       // fresh session state
     }
-    $root = $.plugin.root
     plat = await detect($).catch(() => plat)
+    await migrateLedgers($)
     if ((await read($, reqsA)).length === 0) {
       // Nothing in session state (a fresh process, or a reload that lost it): take over this
       // session's ledger file if it has requirements: one /ledger import wrote, one an earlier
       // load mirrored, or one from 0.1, which kept it in /tmp/claude-ledger.
-      type Kept = { reqs?: Requirement[]; events?: ActivityEvent[]; replies?: Reply[]; title?: string }
+      type Kept = { reqs?: Requirement[]; events?: ActivityEvent[]; replies?: Reply[]; title?: string; signals?: Signal[]; plan?: PlanStep[] }
       let kept: Kept | undefined
-      for (const file of [stateFile(), `/tmp/claude-ledger/state-${sessionId}.json`]) {
+      // Where 0.2 kept it (the temp folder) and 0.1 (/tmp/claude-ledger), too.
+      for (const file of [stateFile(), join(plat.tmp, `state-${sessionId}.json`), `/tmp/claude-ledger/state-${sessionId}.json`]) {
         const found = await $.fs.read(file).then(t => JSON.parse(t) as Kept).catch(() => undefined)
         if (found?.reqs?.length) {
           kept = found
@@ -835,6 +961,8 @@ export const register: Register = on => {
         await update($, repliesA, list => (list.length ? list : kept.replies ?? []))
         await update($, eventsA, list => [...(kept.events ?? []).filter(ev => !known.has(ev.id)), ...list].sort((a, b) => a.at - b.at).slice(-300))
         if (kept.title && !(await read($, titleA))) await update($, titleA, () => kept.title ?? '')
+        if (kept.signals?.length) await update($, signalsA, list => (list.length ? list : kept.signals ?? []))
+        if (kept.plan?.length) await update($, planA, list => (list.length ? list : kept.plan ?? []))
         await save($)
       } else {
         $.clock.after(0, () => void backfillSelf($))
@@ -842,11 +970,14 @@ export const register: Register = on => {
     }
     if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
     $.clock.after(5000, () => void autoImport($).catch(() => undefined))
-    $.clock.every(700, () => void pollInbox($).catch(() => undefined))
+    $.clock.every(700, () => {
+      void pollInbox($).catch(() => undefined)
+      void heartbeat($)
+    })
     await mirror($)
     // A session started without tools refuses this; the ledger still works without it.
     await $.tool.register({ name: 'ledger', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false }).catch(() => undefined)
-    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | theme … | import [days | allow | revoke] | wide | narrow]' })
+    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | install | theme … | import [days | allow | revoke] | wide | narrow]' })
     void openPane($)
     return next(e)
   })
@@ -855,6 +986,7 @@ export const register: Register = on => {
     const raw = e.args.trim()
     const arg = raw.toLowerCase()
     if (arg === 'window' || arg.startsWith('window ')) return { text: await openWindow($, raw.slice(6).trim()) }
+    if (arg === 'install') return { text: await install($).catch(err => `Install failed: ${err instanceof Error ? err.message : String(err)}`) }
     if (arg === 'theme' || arg.startsWith('theme ')) return { text: await themeCommand($, raw.slice(5).trim()) }
     if (arg === 'import' || arg.startsWith('import ')) return { text: await importCommand($, arg.slice(6).trim()) }
     if (arg === 'wide' || arg === 'narrow') await $.store.set('width', arg)
@@ -869,6 +1001,9 @@ export const register: Register = on => {
     const touched = await capture($, e.text)
     if (touched.length) {
       context.push(`[Ledger] Captured from this message:\n${touched.join('\n')}\nReport progress with the ${TOOL} tool.`)
+    }
+    if (conflicts.length) {
+      context.push(`[Ledger] This message conflicts with earlier requirements: ${conflicts.map(c => `${c.id} (${c.reason})`).join('; ')}. Ask the user which one wins before acting on either.`)
     }
     const queued = (await read($, repliesA)).filter(r => r.delivery === 'queued')
     if (queued.length) {
@@ -895,8 +1030,28 @@ export const register: Register = on => {
       // not recorded
     }
     const ran = await next(e)
-    if (ev.state === 'running') {
-      await patchEvent($, ev.id, { state: ran.deny !== undefined || ran.isError === true ? 'failed' : 'ok' }).catch(() => undefined)
+    try {
+      const tool = String(e.tool)
+      if (ev.state === 'running') await patchEvent($, ev.id, { state: ran.deny !== undefined || ran.isError === true ? 'failed' : 'ok' })
+      // Failed or refused calls are signals: easy to miss in the chat, often worth acting on.
+      if (ran.deny !== undefined) await addSignal($, 'blocked', failureText(tool, ran.deny), { eventId: ev.id })
+      else if (ran.isError === true && ev.kind !== 'discovery') await addSignal($, 'failed', failureText(tool, ran.text ?? ''), { eventId: ev.id })
+      if (PLAN_TOOLS.has(tool)) {
+        const steps = planFrom(e as unknown as Record<string, unknown>, await read($, reqsA))
+        if (steps) {
+          await update($, planA, () => steps)
+          await mirror($)
+        }
+      }
+      if (tool === 'Bash' && ran.deny === undefined && ran.text) {
+        const urls = previewUrls(ran.text)
+        if (urls.length) {
+          await update($, previewsA, list => [...list.filter(p => !urls.includes(p.url)), ...urls.map(url => ({ url, at: now(), eventId: ev.id }))].slice(-20))
+          await mirror($)
+        }
+      }
+    } catch {
+      // best effort, as above
     }
     return ran
   }).catch(($, e, next) => next(e))
@@ -921,6 +1076,9 @@ export const register: Register = on => {
       await update($, turnA, () => '')
       if (e.answer.trim()) {
         await pushEvent($, { id: `m-${e.turnId}`, kind: 'message', at: now(), title: clip(e.answer.split('\n')[0] ?? '', 90), detail: clip(e.answer, 2000) })
+        // One Haiku call per turn: what the agent found that's worth acting on, and whether
+        // it went against a requirement. Short answers have neither.
+        if (e.answer.length > 300) $.clock.after(0, () => void review($, e.answer, `m-${e.turnId}`))
       }
       await update($, repliesA, list => list.map(r => (r.delivery === 'received' ? { ...r, delivery: 'acted' as const } : r)))
       await save($)
@@ -965,8 +1123,11 @@ export const register: Register = on => {
       const { Text } = $.ui.resolve(e)
       return <Text>Open the ledger on desktop.</Text>
     }
-    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
-    const [reqs, events, replies, view] = await Promise.all([read($, reqsA), read($, eventsA), read($, repliesA), read($, viewA)])
+    const { Box, Text, Button, Input, Select, Link } = $.ui.resolve(e)
+    const [reqs, events, replies, view, signals, plan, previews] = await Promise.all([
+      read($, reqsA), read($, eventsA), read($, repliesA), read($, viewA), read($, signalsA), read($, planA), read($, previewsA),
+    ])
+    const openSignals = signals.filter(x => !x.dismissed)
     const p = palette(await read($, themeA), view.dark)
     const setView = (patch: Partial<View>) => update($, viewA, v => ({ ...v, ...patch }))
     const chip = (label: string, tone: Tone) => (
@@ -977,7 +1138,10 @@ export const register: Register = on => {
 
     const tabs = (
       <Box flexDirection="row" gap={1} paddingBottom={1}>
-        {([['reqs', `Requirements ${reqs.length}`], ['activity', `Activity ${events.length}`], ['audit', 'Audit']] as const).map(([tab, label]) => (
+        {([
+          ['reqs', `Requirements ${reqs.length}`], ['signals', `Signals ${openSignals.length}`], ['activity', `Activity ${events.length}`],
+          ['plan', `Plan ${plan.length}`], ['tests', 'Tests'], ['preview', `Preview ${previews.length}`], ['audit', 'Audit'],
+        ] as const).map(([tab, label]) => (
           <Button key={`tab-${tab}`} label={label} plain dimColor={view.tab !== tab} onPress={() => setView({ tab })} />
         ))}
         <Button key="theme" label={view.dark ? 'Light mode' : 'Dark mode'} plain dimColor onPress={async () => { await setView({ dark: !view.dark }); await $.store.set('dark', !view.dark) }} />
@@ -997,15 +1161,33 @@ export const register: Register = on => {
     const reqRow = (r: Requirement) => (
       <Box key={`r-${r.id}`} flexDirection="column" paddingY={0}>
         <Box flexDirection="row" gap={1}>
+          <Button key={`rb-${r.id}`} label={r.id} plain onPress={() => setView({ selectedReq: view.selectedReq === r.id ? undefined : r.id })} />
           {chip(r.needsReverify ? 'Needs re-verification' : STATUS[r.status].label, r.needsReverify ? 'warn' : STATUS[r.status].tone)}
-          <Button key={`rb-${r.id}`} label={`${r.id}  ${r.title}`} plain onPress={() => setView({ selectedReq: view.selectedReq === r.id ? undefined : r.id })} />
+          {r.conflict && chip('Conflict', 'danger')}
+        </Box>
+        <Box paddingLeft={2}>
+          <Text color={p.text} wrap="wrap">{r.title}</Text>
         </Box>
         {view.selectedReq === r.id && (
           <Box flexDirection="column" paddingLeft={2} paddingY={1} borderStyle="single" borderColor={p.border}>
+            {r.conflict && (
+              <Box flexDirection="column" paddingBottom={1}>
+                <Text color={p.danger} wrap="wrap">Conflict ({r.conflict.source === 'agent' ? "the agent's work" : 'a later message'}): {r.conflict.reason}</Text>
+                <Button key={`res-${r.id}`} label="Resolved" onPress={() => resolveConflict($, r.id)} />
+              </Box>
+            )}
             {r.history.map((h, i) => (
-              <Text key={`h-${i}`} color={p.text2}>
-                <Text color={p.text3}>{hhmm(h.at)} {h.kind === 'original' ? 'Asked' : 'Refined'}{h.by === 'agent' ? ' (agent)' : ''}: </Text>“{h.text}”
-              </Text>
+              <Box key={`h-${i}`} flexDirection="column">
+                <Text color={p.text2} wrap="wrap">
+                  <Text color={p.text3}>{hhmm(h.at)} {h.kind === 'original' ? 'Asked' : 'Refined'}{h.by === 'agent' ? ' (agent)' : ''}: </Text>“{h.text}”
+                </Text>
+                {h.kind === 'refinement' && (
+                  <Button key={`det-${r.id}-${i}`} label="Not a refinement: make it its own requirement" plain dimColor onPress={() => detachRefinement($, r.id, i)} />
+                )}
+              </Box>
+            ))}
+            {plan.filter(st => st.reqIds.includes(r.id)).map((st, i) => (
+              <Text key={`ps-${i}`} color={p.text3} wrap="wrap">Plan: {st.status === 'completed' ? '✓' : st.status === 'in_progress' ? '›' : '·'} {st.text}</Text>
             ))}
             {r.evidence.length === 0 && <Text color={p.text3}>No evidence yet.</Text>}
             {r.evidence.map((ev, i) => (
@@ -1025,10 +1207,103 @@ export const register: Register = on => {
       </Box>
     )
 
+    const reqFilter = (view.reqFilter ?? 'all') as ReqFilterName
+    const shownReqs = filterReqs(reqs, view.search ?? '', reqFilter)
     const reqsTab = (
       <Box flexDirection="column">
+        <Box flexDirection="row" gap={1}>
+          <Input key="req-search" placeholder="Search requirements" value={view.search ?? ''} submitLabel="Search"
+            onInput={text => setView({ search: text })} onSubmit={text => setView({ search: text })} />
+          <Select key="req-filter" label="Show" value={reqFilter} options={REQ_FILTERS} onSelect={v => setView({ reqFilter: v as ReqFilter })} />
+        </Box>
         {reqs.length === 0 && <Text color={p.text3}>Requirements are tagged from your prompts by Haiku as you send them.</Text>}
-        {reqs.map(reqRow)}
+        {reqs.length > 0 && shownReqs.length === 0 && <Text color={p.text3}>No requirement matches.</Text>}
+        {shownReqs.map(reqRow)}
+      </Box>
+    )
+
+    // ----- signals: failures, refusals, findings, conflicts -----
+    const SIGNAL: Record<Signal['kind'], { label: string; tone: Tone }> = {
+      failed: { label: 'Failed', tone: 'danger' },
+      blocked: { label: 'Blocked', tone: 'danger' },
+      finding: { label: 'Found', tone: 'warn' },
+      conflict: { label: 'Conflict', tone: 'danger' },
+    }
+    const signalsTab = (
+      <Box flexDirection="column">
+        {openSignals.length === 0 && <Text color={p.text3}>Nothing to act on: failed or refused tool calls, unexpected findings and conflicting instructions show here.</Text>}
+        {[...openSignals].reverse().map(sg => (
+          <Box key={`sg-${sg.id}`} flexDirection="column" paddingBottom={1}>
+            <Box flexDirection="row" gap={1}>
+              <Text color={p.text3}>{hhmm(sg.at)}</Text>
+              {chip(SIGNAL[sg.kind].label, SIGNAL[sg.kind].tone)}
+              {sg.reqId && <Text color={p.text3}>{sg.reqId}</Text>}
+            </Box>
+            <Text color={p.text} wrap="wrap">{sg.text}</Text>
+            <Box flexDirection="row" gap={1}>
+              {sg.eventId && events.some(x => x.id === sg.eventId) && (
+                <Button key={`sgr-${sg.id}`} label="Reply" plain onPress={() => setView({ tab: 'activity', selectedEvent: sg.eventId })} />
+              )}
+              <Button key={`sgq-${sg.id}`} label="Make it a requirement" plain
+                onPress={() => sendReply($, events.find(x => x.id === sg.eventId), sg.text, { mode: 'requirement', refines: 'new', interrupt: false })} />
+              <Button key={`sgd-${sg.id}`} label="Dismiss" plain dimColor
+                onPress={() => update($, signalsA, list => list.map(x => (x.id === sg.id ? { ...x, dismissed: true } : x))).then(() => save($))} />
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    )
+
+    // ----- plan, tests, previews -----
+    const unplanned = plan.length ? reqs.filter(r => !isDone(r) && !plan.some(st => st.reqIds.includes(r.id))) : []
+    const planTab = (
+      <Box flexDirection="column">
+        {plan.length === 0 && <Text color={p.text3}>No plan yet: the agent's todo list or plan shows here, each step linked to the requirements it serves.</Text>}
+        {plan.map((st, i) => (
+          <Box key={`pl-${i}`} flexDirection="column">
+            <Text color={st.status === 'completed' ? p.text3 : p.text} wrap="wrap">
+              <Text color={st.status === 'in_progress' ? p.active : st.status === 'completed' ? p.done : p.text3}>{st.status === 'completed' ? '✓ ' : st.status === 'in_progress' ? '› ' : '· '}</Text>
+              {st.text}
+            </Text>
+            <Text color={st.reqIds.length ? p.text3 : p.warn}>  {st.reqIds.length ? st.reqIds.join(', ') : 'serves no requirement'}</Text>
+          </Box>
+        ))}
+        {unplanned.length > 0 && (
+          <Box flexDirection="column" paddingTop={1}>
+            <Text color={p.warn} bold>Not in the plan</Text>
+            {unplanned.map(r => <Text key={`up-${r.id}`} color={p.text2} wrap="wrap">{r.id} {r.title}</Text>)}
+          </Box>
+        )}
+      </Box>
+    )
+    const testRuns = [...events].reverse().filter(x => x.kind === 'test')
+    const testsTab = (
+      <Box flexDirection="column">
+        {testRuns.length === 0 && <Text color={p.text3}>No test, build or check runs yet.</Text>}
+        {testRuns.map(t => {
+          const backs = reqs.filter(r => r.evidence.some(ev => ev.eventId === t.id)).map(r => r.id)
+          return (
+            <Box key={`tr-${t.id}`} flexDirection="column" paddingBottom={1}>
+              <Box flexDirection="row" gap={1}>
+                <Text color={p.text3}>{hhmm(t.at)}</Text>
+                {chip(t.state === 'ok' ? 'Passed' : t.state === 'failed' ? 'Failed' : 'Running', t.state === 'ok' ? 'done' : t.state === 'failed' ? 'danger' : 'active')}
+                {backs.length > 0 && <Text color={p.text3}>evidence for {backs.join(', ')}</Text>}
+              </Box>
+              <Text color={p.text2} wrap="wrap">{t.detail ?? t.title}</Text>
+            </Box>
+          )
+        })}
+      </Box>
+    )
+    const previewTab = (
+      <Box flexDirection="column">
+        {previews.length === 0 && <Text color={p.text3}>No previews yet: local dev servers and preview links that commands print show here.</Text>}
+        {[...previews].reverse().map(pv => (
+          <Box key={`pv-${pv.url}`} flexDirection="row" gap={1}>
+            <Text color={p.text3}>{hhmm(pv.at)}</Text>
+            <Link href={pv.url} label={pv.url} />
+          </Box>
+        ))}
       </Box>
     )
 
@@ -1128,7 +1403,7 @@ export const register: Register = on => {
     )
 
     // ----- audit -----
-    const gap = gapOf
+    const gap = (r: Requirement) => gapOf(r, plan)
     const open = live.filter(r => gap(r))
     const auditTab = (
       <Box flexDirection="column">
@@ -1139,8 +1414,8 @@ export const register: Register = on => {
         <Box flexDirection="column" paddingY={1}>
           {reqs.map(r => (
             <Text key={`a-${r.id}`} color={p.text}>
-              {chip(r.needsReverify ? 'Re-verify' : STATUS[r.status].label, r.needsReverify ? 'warn' : STATUS[r.status].tone)} <Text color={p.text3}>{r.id}</Text> {clip(r.title, 60)}
-              {gap(r) && <Text color={p.text3}> · {gap(r)}</Text>}
+              {chip(r.needsReverify ? 'Re-verify' : STATUS[r.status].label, r.needsReverify ? 'warn' : STATUS[r.status].tone)} <Text color={p.text3}>{r.id}</Text> {r.title}
+              {gap(r) && <Text color={r.conflict ? p.danger : p.text3}> · {gap(r)}</Text>}
             </Text>
           ))}
         </Box>
@@ -1178,8 +1453,9 @@ export const register: Register = on => {
           </Box>
           <Box flexDirection="row" gap={1}>
             {column('col-reqs', side, `Requirements (${reqs.length})`, reqsTab)}
-            {column('col-activity', inner - side * 2 - 2, `Activity (${events.length})`, activityTab)}
-            {column('col-audit', side, 'Completion audit', auditTab)}
+            {column('col-signals', side, `Signals (${openSignals.length})`, signalsTab)}
+            {column('col-activity', inner - side * 3 - 3, `Activity (${events.length})`, activityTab)}
+            {column('col-audit', side, 'Completion audit', <Box flexDirection="column">{auditTab}{planTab}</Box>)}
           </Box>
         </Box>
       )
@@ -1189,7 +1465,7 @@ export const register: Register = on => {
       <Box flexDirection="column" padding={1} backgroundColor={p.bg}>
         {header}
         {tabs}
-        {view.tab === 'reqs' ? reqsTab : view.tab === 'activity' ? activityTab : auditTab}
+        {{ reqs: reqsTab, signals: signalsTab, activity: activityTab, plan: planTab, tests: testsTab, preview: previewTab, audit: auditTab }[view.tab]}
       </Box>
     )
   })

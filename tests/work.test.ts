@@ -1,0 +1,65 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import type { Requirement } from '../types'
+import { filterReqs, gapOf, linkStep, planFrom, previewUrls } from '../hooks/work'
+import { parseReview, parseTagged } from '../hooks/tagging'
+
+const req = (id: string, title: string, extra: Partial<Requirement> = {}): Requirement => ({
+  id, title, status: 'captured', at: 1, history: [{ at: 1, text: title, kind: 'original', by: 'you' }], evidence: [], ...extra,
+})
+const REQS = [
+  req('R1', 'Wrap text in the requirements column'),
+  req('R2', 'Store data outside the temp folder', { status: 'verified' }),
+  req('R3', 'Add search and filters for requirements', { conflict: { reason: 'later message asks to drop search', at: 2, source: 'you' } }),
+  req('R4', 'Explain tmp sessions', { history: [{ at: 1, text: 'x', kind: 'original', by: 'agent' }] }),
+]
+
+describe('plans', () => {
+  test('a step names its requirements, or is matched by title', async () => {
+    expect(linkStep('[R1, R3] Rework the columns', REQS)).toEqual(['R1', 'R3'])
+    expect(linkStep('Add search box and filters for requirements list', REQS)).toEqual(['R3'])
+    expect(linkStep('Refactor the build script', REQS)).toEqual([])
+  })
+  test('TodoWrite and the desktop plan tool both become steps', async () => {
+    const a = planFrom({ todos: [{ content: '[R1] wrap', status: 'in_progress' }] }, REQS)
+    const b = planFrom({ items: [{ content: 'Store data outside the temp folder', status: 'completed' }] }, REQS)
+    expect(a?.[0]).toEqual({ text: '[R1] wrap', status: 'in_progress', reqIds: ['R1'] })
+    expect(b?.[0]?.reqIds).toEqual(['R2'])
+  })
+  test('requirements the plan leaves out are a gap', async () => {
+    const plan = [{ text: 'x', status: 'pending' as const, reqIds: ['R1'] }]
+    expect(gapOf(REQS[3]!, plan)).toBe("Not in the agent's plan")
+    expect(gapOf(REQS[2]!, plan)).toContain('Conflicting instruction')
+    expect(gapOf(REQS[1]!, plan)).toBe('')
+  })
+})
+
+describe('signals and previews', () => {
+  test('preview links come from command output', async () => {
+    const out = '  ➜  Local:   http://localhost:5173/\n  Network: http://0.0.0.0:3000.\nDeployed to https://app-git-main.vercel.app ok'
+    expect(previewUrls(out)).toEqual(['http://localhost:5173/', 'http://localhost:3000', 'https://app-git-main.vercel.app'])
+  })
+  test('a review keeps findings and conflicts, and survives a bad reply', async () => {
+    const r = parseReview('{"findings":[{"text":"The cache is shared across users"}],"conflicts":[{"id":"R2","reason":"wrote to /tmp"}]}')
+    expect(r.findings.length).toBe(1)
+    expect(r.conflicts[0]?.id).toBe('R2')
+    expect(parseReview('not json')).toEqual({ findings: [], conflicts: [] })
+  })
+  test('the tagger can flag a conflict', async () => {
+    const t = parseTagged('{"items":[{"title":"Remove search","quote":"drop search","refines":null,"conflicts":"R3","conflict_reason":"R3 adds search"}]}')
+    expect(t[0]?.conflicts).toBe('R3')
+  })
+})
+
+describe('requirement search and filters', () => {
+  test('search reads ids, titles and your words', async () => {
+    expect(filterReqs(REQS, 'temp', 'all').map(r => r.id)).toEqual(['R2'])
+    expect(filterReqs(REQS, 'r4', 'all').map(r => r.id)).toEqual(['R4'])
+  })
+  test('filters', async () => {
+    expect(filterReqs(REQS, '', 'verified').map(r => r.id)).toEqual(['R2'])
+    expect(filterReqs(REQS, '', 'conflicts').map(r => r.id)).toEqual(['R3'])
+    expect(filterReqs(REQS, '', 'agents').map(r => r.id)).toEqual(['R4'])
+    expect(filterReqs(REQS, '', 'open').map(r => r.id)).toEqual(['R1', 'R3', 'R4'])
+  })
+})

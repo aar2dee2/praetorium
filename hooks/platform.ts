@@ -3,9 +3,19 @@ export type Editor = { name: string; bin: string }
 
 export type Platform = {
   os: OS
+  // Disposable: pre-edit copies used for diffs.
   tmp: string
-  node: string
+  // Kept: each session's ledger, the window's inbox and heartbeat, the downloaded program.
+  data: string
+  // How to run the praetorium program (window, importer, diff); empty until it's installed.
+  runner: string[]
   editors: Editor[]
+}
+
+// The standalone program's file name for this machine, as published on each release.
+export function programName(os: OS, arch: string): string {
+  const a = /arm|aarch/i.test(arch) ? 'arm64' : 'x64'
+  return os === 'windows' ? `praetorium-windows-${a}.exe` : `praetorium-${os === 'mac' ? 'darwin' : 'linux'}-${a}`
 }
 
 export const join = (...parts: string[]) => parts.join('/').replace(/[\\/]+/g, '/')

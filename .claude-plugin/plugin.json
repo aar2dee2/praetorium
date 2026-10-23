@@ -1,11 +1,19 @@
 {
   "name": "praetorium",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Keeps what you asked for apart from what the agent is doing: a requirements ledger, an activity stream you can reply to, and a completion audit that needs evidence.",
-  "author": { "name": "aar2dee2", "url": "https://github.com/aar2dee2" },
+  "author": {
+    "name": "aar2dee2",
+    "url": "https://github.com/aar2dee2"
+  },
   "homepage": "https://github.com/aar2dee2/praetorium",
   "repository": "https://github.com/aar2dee2/praetorium",
   "license": "MIT",
-  "keywords": ["requirements", "audit", "agent", "workflow"],
+  "keywords": [
+    "requirements",
+    "audit",
+    "agent",
+    "workflow"
+  ],
   "types": "./types/index.d.ts"
 }

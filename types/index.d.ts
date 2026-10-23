@@ -29,7 +29,30 @@ export type Requirement = {
   history: ReqVersion[]
   evidence: Evidence[]
   needsReverify?: boolean
+  // Set when a later message or the agent's work contradicts this requirement.
+  conflict?: { reason: string; at: number; source: 'you' | 'agent' }
 }
+
+// Things worth acting on that are easy to miss in the chat: a tool call that failed or was
+// refused, something the agent found that was new or unexpected, or a conflicting instruction.
+export type SignalKind = 'failed' | 'blocked' | 'finding' | 'conflict'
+export type Signal = {
+  id: string
+  kind: SignalKind
+  at: number
+  text: string
+  eventId?: string
+  reqId?: string
+  dismissed?: boolean
+}
+
+export type PlanStep = {
+  text: string
+  status: 'pending' | 'in_progress' | 'completed'
+  reqIds: string[]
+}
+
+export type Preview = { url: string; at: number; eventId: string }
 
 export type EventKind = 'discovery' | 'plan' | 'code' | 'command' | 'test' | 'message'
 
@@ -60,9 +83,10 @@ export type Reply = {
 }
 
 export type Filter = 'key' | 'all' | 'code' | 'tests' | 'messages'
+export type ReqFilter = 'all' | 'open' | 'unverified' | 'verified' | 'conflicts' | 'yours' | 'agents'
 
 export type View = {
-  tab: 'reqs' | 'activity' | 'audit'
+  tab: 'reqs' | 'signals' | 'activity' | 'plan' | 'tests' | 'preview' | 'audit'
   selectedEvent?: string
   selectedReq?: string
   mode: ReplyMode
@@ -70,6 +94,8 @@ export type View = {
   interrupt: boolean
   filter: Filter
   dark: boolean
+  search?: string
+  reqFilter?: ReqFilter
 }
 
 export type ThemeTokens = {
@@ -103,6 +129,9 @@ declare module 'claude-code' {
       inboxSeq: number
       title: string
       theme: Theme
+      signals: Signal[]
+      plan: PlanStep[]
+      previews: Preview[]
     }
   }
 }

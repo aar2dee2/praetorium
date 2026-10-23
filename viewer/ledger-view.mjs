@@ -1,131 +1,115 @@
-// The Ledger in its own terminal window, for every Claude Code session running the mod.
-// No dependencies. Reads the state-<session>.json files the mod writes; sends what
-// you do back through that session's inbox-<session>.jsonl.
-// Usage: node ledger-view.mjs [dir] [session-id to select first]
-//        node ledger-view.mjs --diff <snapshot or ''> <file>
+// The ledger in its own terminal window, for every Claude Code session running Praetorium.
+// Run by the praetorium program (cli.mjs): reads each session's state-<id>.json from the
+// data folder and sends what you do back through that session's inbox-<id>.jsonl.
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { DEFAULT_THEME, palette } from '../hooks/theme.ts'
+import { REQ_FILTERS, filterReqs, gapOf, isVerified } from '../hooks/work.ts'
+
+const G = globalThis.PRAETORIUM ?? { args: process.argv.slice(2), self: [process.execPath, process.argv[1]], isCompiled: false }
+const HOME = os.homedir()
+const dir = G.args[0] || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'praetorium')
+const projectsDir = G.args[2] || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'projects')
+let cur = G.args[1] ?? ''
+
 const isWindows = process.platform === 'win32'
-
-if (process.argv[2] === '--diff') {
-  showDiff(process.argv[3], process.argv[4])
-  process.exit(0)
-}
-
-const dir = process.argv[2] || path.join(os.tmpdir(), 'praetorium')
-let cur = process.argv[3] ?? ''
-const SELF = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
-const ALIVE = path.join(dir, 'viewer.alive') // heartbeat: the mod opens no second window while it's fresh
-const FOCUS = path.join(dir, 'viewer.focus') // a session id the mod asks this window to show
+const ALIVE = path.join(dir, 'viewer.alive') // the mod opens no second window while this is fresh
+const FOCUS = path.join(dir, 'viewer.focus') // a session the mod asks this window to show
+const PREFS = path.join(dir, 'viewer.prefs.json')
 const RELOAD = 75
+const LIVE_MS = 20_000
+const MONTH = 30 * 24 * 3600 * 1000
 
-// The process the terminal runs is a supervisor: it restarts the viewer when the
-// viewer's code changes, keeping the selected session, so updates show without a new window.
+// ---------- supervisor: restart the window when its program changes ----------
+
 if (!process.env.PRAETORIUM_VIEWER_CHILD) {
   let select = cur
   for (;;) {
-    const r = spawnSync(process.execPath, [SELF, dir, select], { stdio: 'inherit', env: { ...process.env, PRAETORIUM_VIEWER_CHILD: '1' } })
+    const r = spawnSync(G.self[0], [...G.self.slice(1), 'view', dir, select, projectsDir], {
+      stdio: 'inherit', env: { ...process.env, PRAETORIUM_VIEWER_CHILD: '1' },
+    })
     if (r.status !== RELOAD) process.exit(r.status ?? 0)
     try { select = fs.readFileSync(path.join(dir, 'viewer.select'), 'utf8').trim() } catch { /* keep */ }
   }
 }
+
+// ---------- state ----------
+
 const sessions = new Map() // id -> { state, mtime }
-const WEEK = 7 * 24 * 3600 * 1000
+const titles = new Map() // id -> { title, mtime } from Claude Code's own transcript
+let transcriptOf = new Map() // id -> transcript path
+let prefs = { dark: undefined, showSessions: true, showHeadless: false }
+try { prefs = { ...prefs, ...JSON.parse(fs.readFileSync(PREFS, 'utf8')) } } catch { /* defaults */ }
+const savePrefs = () => { try { fs.writeFileSync(PREFS, JSON.stringify(prefs)) } catch { /* next time */ } }
+
+const EMPTY = { reqs: [], events: [], replies: [], signals: [], plan: [], previews: [], editors: [], isWorking: false, title: '', project: '' }
+let S = EMPTY
+let focus = 'reqs' // sessions | reqs | signals | middle
+let middle = 'activity' // activity | plan | tests | preview | signals
+let showAll = false
+let search = ''
+let reqFilter = 'all'
+const sel = { reqs: 0, signals: 0, activity: 0, plan: 0, tests: 0, preview: 0 }
+let compose = null // { mode, text, interrupt, eventId, refines } | { mode: 'search', text }
+let flash = ''
+let seq = Date.now()
+
+// ---------- helpers ----------
+
+const out = process.stdout
+const now = () => Date.now()
+const hhmm = t => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 const inboxFile = () => path.join(dir, `inbox-${cur}.jsonl`)
+const aliveAt = id => { try { return fs.statSync(path.join(dir, `alive-${id}`)).mtimeMs } catch { return 0 } }
+const isLive = st => !st.imported && !st.hasEnded && now() - aliveAt(st.sessionId) < LIVE_MS
+const isHeadless = st => /^sdk/.test(st.entry ?? '')
+const nameOf = st => titles.get(st.sessionId)?.title || st.title || 'No prompt yet'
 
-// Graphite, the default theme; a session's own theme replaces it.
-const FALLBACK = {
-  dark: {
-    bg: '#0d0f12', surface: '#14171c', surface2: '#1c2027', border: '#2a2f38',
-    text: '#e6e8eb', text2: '#a0a6b0', text3: '#6b7280',
-    done: '#34d399', active: '#818cf8', warn: '#fbbf24', danger: '#f87171',
-  },
-  light: {
-    bg: '#f8f9fb', surface: '#ffffff', surface2: '#f0f2f5', border: '#e3e6ea',
-    text: '#111418', text2: '#3d434c', text3: '#6b7280',
-    done: '#047857', active: '#4f46e5', warn: '#b45309', danger: '#b91c1c',
-  },
+// One theme and one mode for the whole window: the newest session's theme, your own light/dark.
+function theme() {
+  let newest
+  for (const { state } of sessions.values()) if (state.theme && (!newest || state.at > newest.at)) newest = state
+  return newest?.theme ?? DEFAULT_THEME
 }
-const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
-const mix = (fg, bg, a) => '#' + rgb(fg).map((c, i) => Math.round(rgb(bg)[i] + (c - rgb(bg)[i]) * a).toString(16).padStart(2, '0')).join('')
+const isDark = () => prefs.dark ?? true
+let P = palette(DEFAULT_THEME, true)
+const tone = (t, dim) => (t === 'muted' ? (dim ? P.mutedDim : P.text3) : P[dim ? `${t}Dim` : t])
 
-// Full colour where the terminal says it has it; the nearest of 256 elsewhere (Apple Terminal, older consoles).
+// Full colour where the terminal has it; the nearest of 256 elsewhere (Apple Terminal, older consoles).
 const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM ?? '') ||
   ['iTerm.app', 'WezTerm', 'ghostty', 'vscode', 'WarpTerminal'].includes(process.env.TERM_PROGRAM ?? '') ||
   Boolean(process.env.WT_SESSION || process.env.KITTY_WINDOW_ID)
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
 function to256(hex) {
   const [r, g, b] = rgb(hex)
   const level = c => (c < 48 ? 0 : c < 115 ? 1 : Math.floor((c - 35) / 40))
-  const cube = 16 + 36 * level(r) + 6 * level(g) + level(b)
-  const grey = Math.round(((r + g + b) / 3 - 8) / 10)
-  const greyIdx = 232 + Math.max(0, Math.min(23, grey))
-  const dist = (x, y, z) => (r - x) ** 2 + (g - y) ** 2 + (b - z) ** 2
   const steps = [0, 95, 135, 175, 215, 255]
-  const cubeRgb = [level(r), level(g), level(b)].map(l => steps[l])
-  const greyVal = 8 + 10 * (greyIdx - 232)
-  return dist(...cubeRgb) <= dist(greyVal, greyVal, greyVal) ? cube : greyIdx
+  const greyIdx = 232 + Math.max(0, Math.min(23, Math.round(((r + g + b) / 3 - 8) / 10)))
+  const dist = (x, y, z) => (r - x) ** 2 + (g - y) ** 2 + (b - z) ** 2
+  const gv = 8 + 10 * (greyIdx - 232)
+  return dist(...[level(r), level(g), level(b)].map(l => steps[l])) <= dist(gv, gv, gv) ? 16 + 36 * level(r) + 6 * level(g) + level(b) : greyIdx
 }
 const fgCode = hex => (TRUECOLOR ? `\x1b[38;2;${rgb(hex).join(';')}m` : `\x1b[38;5;${to256(hex)}m`)
 const bgCode = hex => (TRUECOLOR ? `\x1b[48;2;${rgb(hex).join(';')}m` : `\x1b[48;5;${to256(hex)}m`)
 
 const STATUS = {
-  captured: ['Not started', 'muted'],
-  in_progress: ['In progress', 'active'],
-  implemented: ['Implemented, not verified', 'warn'],
-  verified: ['Verified', 'done'],
-  blocked: ['Blocked', 'danger'],
-  needs_clarification: ['Needs clarification', 'warn'],
-  deferred: ['Deferred', 'muted'],
+  captured: ['Not started', 'muted'], in_progress: ['In progress', 'active'], implemented: ['Done, not verified', 'warn'],
+  verified: ['Verified', 'done'], blocked: ['Blocked', 'danger'], needs_clarification: ['Needs you', 'warn'], deferred: ['Deferred', 'muted'],
 }
-const KIND = {
-  discovery: ['Discovery', 'muted'],
-  plan: ['Plan', 'active'],
-  code: ['Code change', 'active'],
-  command: ['Command', 'muted'],
-  test: ['Test', 'warn'],
-  message: ['Agent', 'active'],
-}
-const DELIVERY = {
-  kept: 'comment, not sent',
-  queued: 'queued for your next prompt',
-  received: 'received by agent',
-  acted: 'agent finished a turn after it',
-  failed: 'not delivered',
-}
-const MODES = {
-  comment: 'Comment (agent does not see it)',
-  requirement: 'New requirement',
-  refine: 'Refine requirement',
-  redirect: 'Instruction to the agent',
-}
-
-const EMPTY = { reqs: [], events: [], replies: [], editors: [], isWorking: false, title: '', project: '' }
-let S = EMPTY
-let darkOverride = null // 'l' flips the session's own mode for this window
-let focus = 'reqs' // 'sessions' | 'reqs' | 'activity'
-let showAll = false
-const sel = { sessions: 0, reqs: 0, activity: 0 }
-let compose = null // { mode, text, interrupt, eventId, refines }
-let flash = ''
-let seq = Date.now()
-
-// ---------- drawing ----------
-
-const out = process.stdout
-const isDark = () => darkOverride ?? S.dark ?? true
-const pal = () => {
-  const t = { ...(isDark() ? FALLBACK.dark : FALLBACK.light), ...((isDark() ? S.theme?.dark : S.theme?.light) ?? {}) }
-  return { ...t, mutedDim: t.surface2, ...Object.fromEntries(['done', 'active', 'warn', 'danger'].map(k => [`${k}Dim`, mix(t[k], t.surface, 0.14)])) }
-}
-const tone = (t, dim) => (t === 'muted' ? (dim ? pal().mutedDim : pal().text3) : pal()[dim ? `${t}Dim` : t])
+const KIND = { discovery: ['Discovery', 'muted'], plan: ['Plan', 'active'], code: ['Code change', 'active'], command: ['Command', 'muted'], test: ['Test', 'warn'], message: ['Agent', 'active'] }
+const SIGNAL = { failed: ['Failed', 'danger'], blocked: ['Blocked', 'danger'], finding: ['Found', 'warn'], conflict: ['Conflict', 'danger'] }
+const DELIVERY = { kept: 'comment, not sent', queued: 'queued for your next prompt', received: 'received by agent', acted: 'agent finished a turn after it', failed: 'not delivered' }
+const MODES = { comment: 'Comment (agent does not see it)', requirement: 'New requirement', refine: 'Refine', redirect: 'Instruction to the agent' }
 
 // A line is a list of segments: [text, fg, bg?, bold?]
 const seg = (text, fg, bg, bold) => [String(text), fg, bg, bold]
-const width = line => line.reduce((n, s) => n + [...s[0]].length, 0)
+const chip = (label, t) => seg(` ${label} `, tone(t), tone(t, true))
+const key = k => seg(k, P.active, undefined, true)
 
 function paint(line, w, rowBg) {
   let left = w
@@ -135,232 +119,305 @@ function paint(line, w, rowBg) {
     const chars = [...text.replace(/[\n\r\t]/g, ' ')]
     const part = chars.length > left ? `${chars.slice(0, Math.max(0, left - 1)).join('')}…` : chars.join('')
     left -= [...part].length
-    str += `${fgCode(fg ?? pal().text)}${bgCode(bg ?? rowBg)}${bold ? '\x1b[1m' : ''}${part}\x1b[22m`
+    str += `${fgCode(fg ?? P.text)}${bgCode(bg ?? rowBg)}${bold ? '\x1b[1m' : ''}${part}\x1b[22m`
   }
   return `${str}${bgCode(rowBg)}${' '.repeat(Math.max(0, left))}`
 }
 
-function wrap(text, w, fg, indent = '') {
+function wrapText(text, w) {
   const lines = []
   for (const para of String(text).split('\n')) {
-    let cur = ''
+    let line = ''
     for (const word of para.split(/\s+/)) {
-      if ((cur + ' ' + word).trim().length > w - indent.length && cur) {
-        lines.push([seg(indent + cur, fg)])
-        cur = word
-      } else cur = (cur ? cur + ' ' : '') + word
+      if (line && [...`${line} ${word}`].length > w) { lines.push(line); line = word } else line = line ? `${line} ${word}` : word
+      while ([...line].length > w) { lines.push([...line].slice(0, w).join('')); line = [...line].slice(w).join('') }
     }
-    lines.push([seg(indent + cur, fg)])
+    lines.push(line)
   }
   return lines
 }
+const wrap = (text, w, fg, indent = '') => wrapText(text, Math.max(8, w - indent.length)).map(l => [seg(indent + l, fg)])
 
-const hhmm = t => {
-  const d = new Date(t)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-const chip = (label, t) => seg(` ${label} `, tone(t), tone(t, true))
+// ---------- sessions: names, liveness, grouping ----------
 
-function gapOf(r) {
-  if (r.needsReverify) return 'Changed after it was done; check it again'
-  return {
-    implemented: 'Agent says done; no passing check yet',
-    captured: "Not in the agent's work yet",
-    in_progress: 'Still in progress',
-    blocked: 'Blocked',
-    needs_clarification: 'Waiting on you',
-  }[r.status] ?? ''
+function indexTranscripts() {
+  const map = new Map()
+  try {
+    for (const p of fs.readdirSync(projectsDir, { withFileTypes: true })) {
+      if (!p.isDirectory()) continue
+      for (const f of fs.readdirSync(path.join(projectsDir, p.name))) if (f.endsWith('.jsonl')) map.set(f.slice(0, -6), path.join(projectsDir, p.name, f))
+    }
+  } catch { /* no transcripts folder */ }
+  transcriptOf = map
 }
 
-const shownEvents = () =>
-  [...S.events].filter(e => showAll || (e.kind !== 'discovery' && e.kind !== 'command')).reverse()
-const live = () => S.reqs.filter(r => r.status !== 'deferred')
-const isVerified = r => r.status === 'verified' && !r.needsReverify
+// The session's name as Claude Code shows it: its latest custom title, read from the transcript's tail.
+function refreshTitles() {
+  for (const id of sessions.keys()) {
+    const file = transcriptOf.get(id)
+    if (!file) continue
+    try {
+      const st = fs.statSync(file)
+      if (titles.get(id)?.mtime === st.mtimeMs) continue
+      const size = Math.min(st.size, 512 * 1024)
+      const buf = Buffer.alloc(size)
+      const fd = fs.openSync(file, 'r')
+      fs.readSync(fd, buf, 0, size, st.size - size)
+      fs.closeSync(fd)
+      let title = titles.get(id)?.title ?? ''
+      for (const line of buf.toString('utf8').split('\n')) {
+        if (!line.includes('"custom-title"')) continue
+        try { title = JSON.parse(line).customTitle || title } catch { /* partial first line */ }
+      }
+      titles.set(id, { title, mtime: st.mtimeMs })
+    } catch { /* unreadable: keep the first prompt */ }
+  }
+}
 
 function sessionList() {
   return [...sessions.values()]
     .map(x => x.state)
-    .filter(st => Date.now() - (st.at ?? 0) < WEEK)
-    .sort((a, b) => Number(b.isWorking) - Number(a.isWorking) || (b.at ?? 0) - (a.at ?? 0))
+    .filter(st => now() - (st.at ?? 0) < MONTH && (prefs.showHeadless || !isHeadless(st)))
+    .sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || (b.at ?? 0) - (a.at ?? 0))
 }
+
+// ---------- columns ----------
 
 function sessionLines(w) {
-  const p = pal()
   const list = sessionList()
-  const lines = [[seg(`SESSIONS  ${list.length}`, p.text2, undefined, true)], []]
-  list.forEach(st => {
-    const isCur = st.sessionId === cur
-    const isSel = focus === 'sessions' && isCur
-    const L = st.reqs.filter(r => r.status !== 'deferred')
-    const v = L.filter(r => r.status === 'verified' && !r.needsReverify).length
-    const dot = st.isWorking ? seg('● ', p.active) : st.imported ? seg('◌ ', p.text3) : st.hasEnded ? seg('· ', p.text3) : seg('○ ', p.text3)
-    lines.push({ sel: isSel || isCur, line: [dot, seg(st.project || 'session', isCur ? p.text : p.text2, undefined, isCur)] })
-    lines.push({ sel: isSel || isCur, line: [seg('  '), seg(st.title || 'No prompt yet', p.text3)] })
-    lines.push({ sel: isSel || isCur, line: [seg('  '), seg(`${v}/${L.length} verified`, v === L.length && L.length ? p.done : p.text3)] })
+  const lines = [[seg(`SESSIONS  ${list.length}`, P.text2, undefined, true)], []]
+  const groups = new Map()
+  for (const st of list) groups.set(st.project || 'Other', [...(groups.get(st.project || 'Other') ?? []), st])
+  for (const [project, group] of groups) {
+    lines.push([seg(project, P.text3)])
+    for (const st of group) {
+      const isCur = st.sessionId === cur
+      const live = isLive(st)
+      const L = st.reqs.filter(r => r.status !== 'deferred')
+      const v = L.filter(isVerified).length
+      const signals = (st.signals ?? []).filter(x => !x.dismissed).length
+      const dot = st.isWorking && live ? seg('● ', P.active) : live ? seg('○ ', P.done) : st.imported ? seg('◌ ', P.text3) : seg('· ', P.text3)
+      const rows = wrapText(nameOf(st), w - 2).slice(0, 2)
+      rows.forEach((row, i) => lines.push({ sel: isCur, line: [i ? seg('  ') : dot, seg(row, live || isCur ? P.text : P.text3, undefined, isCur)] }))
+      lines.push({ sel: isCur, line: [seg('  '), seg(`${v}/${L.length} verified`, v === L.length && L.length ? P.done : P.text3),
+        ...(signals ? [seg(` · ${signals} signal${signals === 1 ? '' : 's'}`, P.warn)] : []),
+        ...(live ? [] : [seg(st.imported ? ' · imported' : ' · not running', P.text3)])] })
+    }
     lines.push([])
-  })
-  if (!list.length) lines.push(...wrap('No sessions are running the ledger mod yet.', w, p.text3))
+  }
+  if (!list.length) lines.push(...wrap('No sessions are running Praetorium yet.', w, P.text3))
   return lines
 }
+
+const shownReqs = () => filterReqs(S.reqs, search, reqFilter)
+const openSignals = () => (S.signals ?? []).filter(x => !x.dismissed).slice().reverse()
+const shownEvents = () => [...S.events].filter(e => showAll || (e.kind !== 'discovery' && e.kind !== 'command')).reverse()
+const testRuns = () => [...S.events].filter(e => e.kind === 'test').reverse()
+const previews = () => [...(S.previews ?? [])].reverse()
 
 function reqLines(w) {
-  const p = pal()
-  const lines = [[seg(`REQUIREMENTS  ${S.reqs.length}`, p.text2, undefined, true)], []]
-  if (!S.reqs.length) lines.push(...wrap('Tagged from your prompts by Haiku as you send them.', w, p.text3))
-  S.reqs.forEach((r, i) => {
+  const reqs = shownReqs()
+  const filterLabel = REQ_FILTERS.find(f => f.value === reqFilter)?.label ?? 'All'
+  const lines = [[seg(`REQUIREMENTS  ${reqs.length}${reqs.length !== S.reqs.length ? `/${S.reqs.length}` : ''}`, P.text2, undefined, true),
+    seg(`  ${filterLabel}${search ? ` · “${search}”` : ''}`, P.text3)], []]
+  if (!S.reqs.length) lines.push(...wrap('Tagged from your prompts by Haiku as you send them.', w, P.text3))
+  else if (!reqs.length) lines.push(...wrap('No requirement matches. / to search, F to change the filter.', w, P.text3))
+  reqs.forEach((r, i) => {
     const [label, t] = r.needsReverify ? ['Re-verify', 'warn'] : STATUS[r.status]
     const isSel = focus === 'reqs' && i === sel.reqs
-    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', p.active), seg(`${r.id} `, p.text3), chip(label, t), seg(' '), seg(r.title, isSel ? p.text : p.text, undefined, isSel)] })
+    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', P.active), seg(`${r.id} `, P.text3), chip(label, t), ...(r.conflict ? [seg(' '), chip('Conflict', 'danger')] : [])] })
+    for (const row of wrapText(r.title, w - 4)) lines.push({ sel: isSel, line: [seg('    '), seg(row, P.text, undefined, isSel)] })
   })
   return lines
 }
 
-function activityLines(w) {
-  const p = pal()
-  const evs = shownEvents()
-  const lines = [[seg(`ACTIVITY  ${S.events.length}`, p.text2, undefined, true), seg(showAll ? '  everything' : '  key events', p.text3)], []]
-  if (!evs.length) lines.push([seg('No activity yet.', p.text3)])
-  evs.forEach((ev, i) => {
-    const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
-    const isSel = focus === 'activity' && i === sel.activity
-    const n = S.replies.filter(r => r.eventId === ev.id).length
-    lines.push({
-      sel: isSel,
-      line: [
-        seg(isSel ? '› ' : '  ', p.active), seg(`${hhmm(ev.at)} `, p.text3), seg(`${label} `, tone(t)),
-        seg(ev.title, p.text, undefined, isSel),
-        ...(ev.state === 'failed' ? [seg('  failed', p.danger)] : ev.state === 'running' ? [seg('  running', p.active)] : []),
-        ...(n ? [seg(`  · ${n} repl${n === 1 ? 'y' : 'ies'}`, p.text3)] : []),
-      ],
-    })
+function signalLines(w, heading = true) {
+  const list = openSignals()
+  const lines = heading ? [[seg(`SIGNALS  ${list.length}`, P.text2, undefined, true), seg('  failed · blocked · found · conflict', P.text3)], []] : []
+  if (!list.length) lines.push(...wrap('Nothing to act on. Failed or refused tool calls, unexpected findings and conflicting instructions show here.', w, P.text3))
+  list.forEach((x, i) => {
+    const [label, t] = SIGNAL[x.kind] ?? ['Signal', 'muted']
+    const isSel = (focus === 'signals' || (focus === 'middle' && middle === 'signals')) && i === sel.signals
+    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', P.active), seg(`${hhmm(x.at)} `, P.text3), chip(label, t), ...(x.reqId ? [seg(` ${x.reqId}`, P.text3)] : [])] })
+    for (const row of wrapText(x.text, w - 4).slice(0, 4)) lines.push({ sel: isSel, line: [seg('    '), seg(row, P.text)] })
   })
+  return lines
+}
+
+function middleLines(w, withSignals) {
+  const tabs = [['activity', `1 Activity ${S.events.length}`], ['plan', `2 Plan ${S.plan?.length ?? 0}`], ['tests', `3 Tests ${testRuns().length}`],
+    ['preview', `4 Preview ${S.previews?.length ?? 0}`], ...(withSignals ? [['signals', `5 Signals ${openSignals().length}`]] : [])]
+  const lines = [tabs.flatMap(([id, label]) => [seg(` ${label} `, middle === id ? P.text : P.text3, middle === id ? P.surface2 : undefined, middle === id), seg(' ')]), []]
+  const isSel = (list, i) => focus === 'middle' && i === sel[list]
+  if (middle === 'signals') return [...lines, ...signalLines(w, false)]
+  if (middle === 'activity') {
+    const evs = shownEvents()
+    lines.push([seg(showAll ? 'everything' : 'key events', P.text3), seg('  v to switch', P.text3)])
+    if (!evs.length) lines.push([seg('No activity yet.', P.text3)])
+    evs.forEach((ev, i) => {
+      const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
+      const n = S.replies.filter(r => r.eventId === ev.id).length
+      lines.push({ sel: isSel('activity', i), line: [seg(isSel('activity', i) ? '› ' : '  ', P.active), seg(`${hhmm(ev.at)} `, P.text3), seg(`${label} `, tone(t)),
+        seg(ev.title, P.text, undefined, isSel('activity', i)),
+        ...(ev.state === 'failed' ? [seg('  failed', P.danger)] : ev.state === 'running' ? [seg('  running', P.active)] : []),
+        ...(n ? [seg(`  · ${n} repl${n === 1 ? 'y' : 'ies'}`, P.text3)] : [])] })
+    })
+  } else if (middle === 'plan') {
+    const plan = S.plan ?? []
+    if (!plan.length) lines.push(...wrap("No plan yet. The agent's todo list shows here, each step linked to the requirements it serves.", w, P.text3))
+    plan.forEach((st, i) => {
+      const mark = st.status === 'completed' ? seg('✓ ', P.done) : st.status === 'in_progress' ? seg('› ', P.active) : seg('· ', P.text3)
+      wrapText(st.text, w - 4).forEach((row, j) => lines.push({ sel: isSel('plan', i), line: [j ? seg('  ') : mark, seg(row, st.status === 'completed' ? P.text3 : P.text)] }))
+      lines.push({ sel: isSel('plan', i), line: [seg('  '), seg(st.reqIds.length ? st.reqIds.join(', ') : 'serves no requirement', st.reqIds.length ? P.text3 : P.warn)] })
+    })
+    const unplanned = plan.length ? S.reqs.filter(r => !isVerified(r) && r.status !== 'deferred' && !plan.some(st => st.reqIds.includes(r.id))) : []
+    if (unplanned.length) {
+      lines.push([], [seg('NOT IN THE PLAN', P.warn, undefined, true)])
+      for (const r of unplanned) lines.push(...wrap(`${r.id} ${r.title}`, w, P.text2))
+    }
+  } else if (middle === 'tests') {
+    const runs = testRuns()
+    if (!runs.length) lines.push([seg('No test, build or check runs yet.', P.text3)])
+    runs.forEach((t, i) => {
+      const backs = S.reqs.filter(r => r.evidence.some(e => e.eventId === t.id)).map(r => r.id)
+      lines.push({ sel: isSel('tests', i), line: [seg(`${hhmm(t.at)} `, P.text3),
+        chip(t.state === 'ok' ? 'Passed' : t.state === 'failed' ? 'Failed' : 'Running', t.state === 'ok' ? 'done' : t.state === 'failed' ? 'danger' : 'active'),
+        ...(backs.length ? [seg(` evidence for ${backs.join(', ')}`, P.text3)] : [])] })
+      for (const row of wrapText(t.detail ?? t.title, w - 2).slice(0, 2)) lines.push({ sel: isSel('tests', i), line: [seg('  '), seg(row, P.text2)] })
+    })
+  } else if (middle === 'preview') {
+    const list = previews()
+    if (!list.length) lines.push(...wrap('No previews yet. Local dev servers and preview links that commands print show here. Enter opens one.', w, P.text3))
+    list.forEach((pv, i) => lines.push({ sel: isSel('preview', i), line: [seg(isSel('preview', i) ? '› ' : '  ', P.active), seg(`${hhmm(pv.at)} `, P.text3), seg(pv.url, P.active)] }))
+  }
+  return lines
+}
+
+function eventDetail(ev, w) {
+  const lines = []
+  const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
+  lines.push([chip(label, t), seg(`  ${hhmm(ev.at)}`, P.text3)], ...wrap(ev.title, w, P.text))
+  if (ev.file) lines.push([seg(ev.file, P.text3)])
+  if (ev.detail) lines.push([], ...wrap(ev.detail, w, P.text2).slice(0, 14))
+  const thread = S.replies.filter(r => r.eventId === ev.id)
+  if (thread.length) lines.push([])
+  for (const r of thread) {
+    lines.push([seg(`You ${hhmm(r.at)}`, P.text3), seg(`  ${DELIVERY[r.delivery]}${r.error ? `: ${r.error}` : ''}`, r.delivery === 'failed' ? P.danger : r.delivery === 'kept' ? P.text3 : P.active)])
+    lines.push(...wrap(r.text, w, P.text2, '  '))
+  }
+  lines.push([], [key('c'), seg(' comment  ', P.text3), key('n'), seg(' new requirement  ', P.text3), key('i'), seg(' instruct agent', P.text3)])
+  if (ev.kind === 'code' && ev.file) lines.push([...(S.editors[0] ? [key('o'), seg(` diff in ${S.editors[0].name}  `, P.text3)] : []), key('t'), seg(' diff here', P.text3)])
   return lines
 }
 
 function detailLines(w) {
-  const p = pal()
   const lines = []
+  const sig = openSignals()[sel.signals]
   if (focus === 'reqs') {
-    const r = S.reqs[sel.reqs]
+    const r = shownReqs()[sel.reqs]
     if (r) {
       const [label, t] = r.needsReverify ? ['Needs re-verification', 'warn'] : STATUS[r.status]
-      lines.push([seg(r.id + ' ', p.text3), chip(label, t)], ...wrap(r.title, w, p.text), [])
+      lines.push([seg(`${r.id} `, P.text3), chip(label, t)], ...wrap(r.title, w, P.text), [])
+      if (r.conflict) lines.push(...wrap(`Conflict (${r.conflict.source === 'agent' ? "the agent's work" : 'a later message'}): ${r.conflict.reason}`, w, P.danger), [key('x'), seg(' mark resolved', P.text3)], [])
       for (const h of r.history) {
-        lines.push([seg(`${hhmm(h.at)} ${h.kind === 'original' ? 'Asked' : 'Refined'}${h.by === 'agent' ? ' (agent)' : ''}`, p.text3)])
-        lines.push(...wrap(`“${h.text}”`, w, p.text2, '  '))
+        lines.push([seg(`${hhmm(h.at)} ${h.kind === 'original' ? 'Asked' : 'Refined'}${h.by === 'agent' ? ' (agent)' : ''}`, P.text3)])
+        lines.push(...wrap(`“${h.text}”`, w, P.text2, '  '))
       }
+      const steps = (S.plan ?? []).filter(st => st.reqIds.includes(r.id))
+      if (steps.length) lines.push([], [seg('In the plan', P.text3)], ...steps.flatMap(st => wrap(`${st.status === 'completed' ? '✓' : st.status === 'in_progress' ? '›' : '·'} ${st.text}`, w, P.text2, '  ')))
       lines.push([])
-      if (!r.evidence.length) lines.push([seg('No evidence yet.', p.text3)])
-      for (const e of r.evidence) {
-        const good = e.kind === 'test' || e.kind === 'manual'
-        lines.push(...wrap(`${e.kind === 'test' ? 'Passed: ' : e.kind === 'manual' ? 'Accepted by you: ' : 'Note: '}${e.text}`, w, good ? p.done : p.text2))
-      }
-      lines.push([], [seg('a', p.active, undefined, true), seg(' accept  ', p.text3), seg('d', p.active, undefined, true), seg(' defer  ', p.text3), seg('f', p.active, undefined, true), seg(' refine', p.text3)])
+      if (!r.evidence.length) lines.push([seg('No evidence yet.', P.text3)])
+      for (const e of r.evidence) lines.push(...wrap(`${e.kind === 'test' ? 'Passed: ' : e.kind === 'manual' ? 'Accepted by you: ' : 'Note: '}${e.text}`, w, e.kind === 'test' || e.kind === 'manual' ? P.done : P.text2))
+      lines.push([], [key('a'), seg(' accept  ', P.text3), key('d'), seg(' defer  ', P.text3), key('f'), seg(' refine', P.text3)])
     }
-  } else {
-    const ev = shownEvents()[sel.activity]
-    if (ev) {
-      const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
-      lines.push([chip(label, t), seg(`  ${hhmm(ev.at)}`, p.text3)], ...wrap(ev.title, w, p.text))
-      if (ev.file) lines.push([seg(ev.file, p.text3)])
-      if (ev.detail) lines.push([], ...wrap(ev.detail, w, p.text2).slice(0, 14))
-      const thread = S.replies.filter(r => r.eventId === ev.id)
-      if (thread.length) lines.push([])
-      for (const r of thread) {
-        lines.push([seg(`You ${hhmm(r.at)}`, p.text3), seg(`  ${DELIVERY[r.delivery]}${r.error ? `: ${r.error}` : ''}`, r.delivery === 'failed' ? p.danger : r.delivery === 'kept' ? p.text3 : p.active)])
-        lines.push(...wrap(r.text, w, p.text2, '  '))
-      }
-      lines.push([], [
-        seg('c', p.active, undefined, true), seg(' comment  ', p.text3),
-        seg('n', p.active, undefined, true), seg(' new requirement  ', p.text3),
-        seg('i', p.active, undefined, true), seg(' instruct agent', p.text3),
-      ])
-      if (ev.kind === 'code' && ev.file) {
-        lines.push([
-          ...(S.editors[0] ? [seg('o', p.active, undefined, true), seg(` diff in ${S.editors[0].name}  `, p.text3)] : []),
-          seg('t', p.active, undefined, true), seg(' diff here', p.text3),
-        ])
-      }
+  } else if ((focus === 'signals' || (focus === 'middle' && middle === 'signals')) && sig) {
+    const [label, t] = SIGNAL[sig.kind] ?? ['Signal', 'muted']
+    lines.push([chip(label, t), seg(`  ${hhmm(sig.at)}${sig.reqId ? `  ${sig.reqId}` : ''}`, P.text3)], ...wrap(sig.text, w, P.text), [])
+    lines.push([key('enter'), seg(' go to the event  ', P.text3), key('n'), seg(' make it a requirement  ', P.text3), key('x'), seg(' dismiss', P.text3)])
+    const ev = S.events.find(e => e.id === sig.eventId)
+    if (ev) lines.push([], ...eventDetail(ev, w))
+  } else if (focus === 'middle') {
+    const ev = middle === 'activity' ? shownEvents()[sel.activity] : middle === 'tests' ? testRuns()[sel.tests] : undefined
+    if (ev) lines.push(...eventDetail(ev, w))
+    if (middle === 'preview' && previews()[sel.preview]) lines.push(...wrap(previews()[sel.preview].url, w, P.active), [key('enter'), seg(' open in your browser', P.text3)])
+    if (middle === 'plan' && S.plan?.[sel.plan]) {
+      const st = S.plan[sel.plan]
+      lines.push(...wrap(st.text, w, P.text), [])
+      for (const id of st.reqIds) { const r = S.reqs.find(x => x.id === id); if (r) lines.push(...wrap(`${r.id} ${r.title}`, w, P.text2)) }
     }
   }
-  // audit
-  const L = live()
+  // the audit, always
+  const L = S.reqs.filter(r => r.status !== 'deferred')
   const verified = L.filter(isVerified).length
-  const gaps = L.filter(r => gapOf(r))
-  lines.push([], [seg('COMPLETION AUDIT', p.text2, undefined, true)])
-  lines.push([seg(`Accounted ${L.filter(r => r.status !== 'captured').length}/${L.length}`, p.text), seg('   '), seg(`Verified ${verified}/${L.length}`, p.done)])
-  lines.push(...wrap("The agent saying it's done doesn't count: verified needs a passing check or your acceptance.", w, p.text3))
-  for (const r of gaps) lines.push([seg(`${r.id} `, p.text3), seg(gapOf(r), p.warn)])
-  if (gaps.length) lines.push([seg('g', p.active, undefined, true), seg(` ask agent to close ${gaps.length} gap${gaps.length === 1 ? '' : 's'}`, p.text3)])
+  const gaps = L.filter(r => gapOf(r, S.plan ?? []))
+  lines.push([], [seg('COMPLETION AUDIT', P.text2, undefined, true)])
+  lines.push([seg(`Accounted ${L.filter(r => r.status !== 'captured').length}/${L.length}`, P.text), seg('   '), seg(`Verified ${verified}/${L.length}`, P.done)])
+  lines.push(...wrap("The agent saying it's done doesn't count: verified needs a passing check or your acceptance.", w, P.text3))
+  for (const r of gaps) lines.push(...wrap(`${r.id} ${gapOf(r, S.plan ?? [])}`, w, r.conflict ? P.danger : P.warn))
+  if (gaps.length) lines.push([key('g'), seg(` ask agent to close ${gaps.length} gap${gaps.length === 1 ? '' : 's'}`, P.text3)])
   return lines
 }
 
-function column(lines, w, h) {
-  // Keep the selected row in view.
+function column(lines, h) {
   const selAt = lines.findIndex(l => l && l.sel)
-  const start = selAt >= h ? selAt - h + 3 : 0
-  return lines.slice(start, start + h).map(l => (Array.isArray(l) ? { line: l } : l))
+  const start = selAt >= h - 2 ? selAt - h + 4 : 0
+  return lines.slice(Math.max(0, start), Math.max(0, start) + h).map(l => (Array.isArray(l) ? { line: l } : l))
+}
+
+function layout(W) {
+  const gutter = 3
+  const cols = []
+  const withSessions = prefs.showSessions && W >= 120
+  let rest = W
+  if (withSessions) { cols.push(['sessions', 28]); rest -= 28 + gutter }
+  if (rest >= 170) {
+    const wr = Math.floor((rest - gutter * 3) * 0.27), ws = Math.floor((rest - gutter * 3) * 0.21), wm = Math.floor((rest - gutter * 3) * 0.27)
+    cols.push(['reqs', wr], ['signals', ws], ['middle', wm], ['detail', rest - gutter * 3 - wr - ws - wm])
+  } else if (rest >= 100) {
+    const wr = Math.floor((rest - gutter * 2) * 0.32), wm = Math.floor((rest - gutter * 2) * 0.36)
+    cols.push(['reqs', wr], ['middle', wm], ['detail', rest - gutter * 2 - wr - wm])
+  } else {
+    cols.push(['stack', rest])
+  }
+  return cols
 }
 
 function render() {
-  const p = pal()
+  P = palette(theme(), isDark())
   const W = out.columns || 120
   const H = out.rows || 40
-  const L = live()
+  const L = S.reqs.filter(r => r.status !== 'deferred')
   const verified = L.filter(isVerified).length
-  const rows = []
-  rows.push({ line: [
-    seg(' Ledger ', p.text, undefined, true),
-    seg(` ${S.project || ''}${S.title ? ` · ${S.title}` : ''}`, p.text2),
-    ...(S.imported ? [seg('  imported · read-only until reopened', p.warn)] : []),
-    seg(`   ${L.length} requirements · `, p.text2), seg(`${verified} verified`, p.done), seg(` · ${L.length - verified} open`, p.text2),
-    seg('   agent ', p.text3), S.isWorking ? seg('● working', p.active) : seg('○ idle', p.text3),
-  ] })
-  rows.push({ line: [] })
-
+  const st = sessions.get(cur)?.state
+  const state = !st ? seg('no session', P.text3) : st.imported ? seg('imported · read-only until reopened', P.warn)
+    : !isLive(st) ? seg('not running · nothing can be sent', P.warn) : st.isWorking ? seg('● working', P.active) : seg('○ idle', P.done)
+  const rows = [{ line: [seg(' Ledger ', P.text, undefined, true), seg(` ${S.project || ''}${st ? ` · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
+    seg(`   ${L.length} requirements · `, P.text3), seg(`${verified} verified`, P.done)] }, { line: [] }]
+  const cols = layout(W)
+  const hasSignalsCol = cols.some(([c]) => c === 'signals')
+  if (!hasSignalsCol && focus === 'signals') { focus = 'middle'; middle = 'signals' }
+  if (hasSignalsCol && middle === 'signals') middle = 'activity'
   const bodyH = H - 5
-  const gutter = 3
-  let cols
-  if (W >= 140) {
-    const ws = 26
-    const rest = W - ws - gutter * 3
-    const wl = Math.floor(rest * 0.3)
-    const wm = Math.floor(rest * 0.37)
-    const wr = rest - wl - wm
-    cols = [[sessionLines(ws), ws], [reqLines(wl), wl], [activityLines(wm), wm], [detailLines(wr), wr]]
-  } else if (W >= 110) {
-    const wl = Math.floor((W - gutter * 2) * 0.3)
-    const wm = Math.floor((W - gutter * 2) * 0.38)
-    const wr = W - gutter * 2 - wl - wm
-    cols = [[reqLines(wl), wl], [activityLines(wm), wm], [detailLines(wr), wr]]
-  } else {
-    const list = focus === 'reqs' ? reqLines(W) : activityLines(W)
-    cols = [[[...list, [], ...detailLines(W)], W]]
-  }
-  const drawn = cols.map(([lines, w]) => [column(lines, w, bodyH), w])
+  const drawn = cols.map(([c, w]) => {
+    const lines = c === 'sessions' ? sessionLines(w) : c === 'reqs' ? reqLines(w) : c === 'signals' ? signalLines(w) : c === 'middle' ? middleLines(w, !hasSignalsCol)
+      : c === 'detail' ? detailLines(w) : [...(focus === 'reqs' ? reqLines(w) : middleLines(w, true)), [], ...detailLines(w)]
+    return [column(lines, bodyH), w]
+  })
   for (let y = 0; y < bodyH; y++) {
-    const parts = drawn.map(([lines, w]) => {
-      const l = lines[y]
-      return paint(l ? l.line : [], w, l && l.sel ? p.surface2 : p.bg)
-    })
-    rows.push({ raw: parts.join(paint([], gutter, p.bg)) })
+    rows.push({ raw: drawn.map(([lines, w]) => { const l = lines[y]; return paint(l ? l.line : [], w, l && l.sel ? P.surface2 : P.bg) }).join(paint([], 3, P.bg)) })
   }
-
-  // footer
   let footer
-  if (compose) {
-    const mode = MODES[compose.mode] + (compose.mode === 'refine' ? ` ${compose.refines}` : '')
-    footer = [
-      chip(mode, compose.mode === 'comment' ? 'muted' : 'active'),
-      ...(compose.mode === 'comment' ? [] : [seg('  '), compose.interrupt ? chip('interrupt first', 'danger') : seg('ctrl-t interrupt first', p.text3)]),
-      seg('  › ', p.active), seg(compose.text + '▏', p.text),
-    ]
+  if (compose?.mode === 'search') {
+    footer = [chip('Search requirements', 'active'), seg('  › ', P.active), seg(compose.text + '▏', P.text), seg('   enter apply · esc clear', P.text3)]
+  } else if (compose) {
+    footer = [seg(`to ${st ? nameOf(st).slice(0, 40) : '?'}  `, P.text3), chip(MODES[compose.mode] + (compose.mode === 'refine' ? ` ${compose.refines}` : ''), compose.mode === 'comment' ? 'muted' : 'active'),
+      ...(compose.mode === 'comment' ? [] : [seg('  '), compose.interrupt ? chip('interrupt first', 'danger') : seg('ctrl-t interrupt first', P.text3)]),
+      seg('  › ', P.active), seg(compose.text + '▏', P.text)]
   } else {
-    footer = [seg(flash || 'tab switch column · ↑↓ move · [ ] session · v all/key events · g close gaps · l light/dark · q quit', flash ? p.active : p.text3)]
+    footer = [seg(flash || 'tab column · ↑↓ move · [ ] session · S sessions · / search · F filter · 1-5 tabs · x resolve/dismiss · l light/dark · h headless · q quit', flash ? P.active : P.text3)]
   }
-  rows.push({ line: [] }, { line: [seg('─'.repeat(W), p.border)] }, { line: footer })
-
-  out.write('\x1b[H' + rows.map(r => r.raw ?? paint(r.line, W, p.bg)).join('\r\n') + '\x1b[0m')
+  rows.push({ line: [] }, { line: [seg('─'.repeat(W), P.border)] }, { line: footer })
+  out.write('\x1b[H' + rows.map(r => r.raw ?? paint(r.line, W, P.bg)).join('\r\n') + '\x1b[0m')
 }
 
 // ---------- state in, commands out ----------
@@ -368,11 +425,7 @@ function render() {
 function scan() {
   let changed = false
   let names = []
-  try {
-    names = fs.readdirSync(dir).filter(n => /^state-.+\.json$/.test(n))
-  } catch {
-    // no sessions yet
-  }
+  try { names = fs.readdirSync(dir).filter(n => /^state-.+\.json$/.test(n)) } catch { /* nothing yet */ }
   for (const name of names) {
     const file = path.join(dir, name)
     try {
@@ -381,14 +434,9 @@ function scan() {
       if (sessions.get(id)?.mtime === mtime) continue
       sessions.set(id, { mtime, state: { ...EMPTY, sessionId: id, ...JSON.parse(fs.readFileSync(file, 'utf8')) } })
       changed = true
-    } catch {
-      // half-written: read it next scan
-    }
+    } catch { /* half-written: next scan */ }
   }
-  if (!cur || !sessions.has(cur)) {
-    const first = sessionList()[0]
-    if (first) { cur = first.sessionId; changed = true }
-  }
+  if (!cur || !sessions.has(cur)) { const first = sessionList()[0]; if (first) { cur = first.sessionId; changed = true } }
   if (changed) load()
 }
 
@@ -397,48 +445,80 @@ function switchSession(step) {
   if (!list.length) return
   const i = Math.max(0, list.findIndex(st => st.sessionId === cur))
   cur = list[(i + step + list.length) % list.length].sessionId
-  sel.reqs = 0
-  sel.activity = 0
+  for (const k of Object.keys(sel)) sel[k] = 0
   load()
+}
+
+function clampSel() {
+  const max = { reqs: shownReqs().length, signals: openSignals().length, activity: shownEvents().length, plan: S.plan?.length ?? 0, tests: testRuns().length, preview: previews().length }
+  for (const k of Object.keys(sel)) sel[k] = Math.max(0, Math.min(sel[k], (max[k] ?? 1) - 1))
 }
 
 function load() {
   S = sessions.get(cur)?.state ?? EMPTY
-  sel.reqs = Math.min(sel.reqs, Math.max(0, S.reqs.length - 1))
-  sel.activity = Math.min(sel.activity, Math.max(0, shownEvents().length - 1))
+  clampSel()
   render()
+}
+
+function say(text, ms = 3500) {
+  flash = text
+  setTimeout(() => { if (flash === text) { flash = ''; render() } }, ms)
+  render()
+}
+
+// Only a running session reads its inbox; anything else would sit unread.
+function canSend() {
+  const st = sessions.get(cur)?.state
+  if (!st) return false
+  if (st.imported) { say('This session was imported from its transcript. Reopen it in Claude Code to reply or instruct.'); return false }
+  if (!isLive(st)) { say('This session is not running, so nothing can reach it. Reopen it in Claude Code first.'); return false }
+  return true
 }
 
 function send(cmd, note) {
-  if (!cur) return
+  if (!cur || !canSend()) return
   fs.appendFileSync(inboxFile(), JSON.stringify({ seq: ++seq, ...cmd }) + '\n')
-  flash = note
-  setTimeout(() => { flash = ''; render() }, 3000)
-  render()
+  say(note)
+}
+
+function openUrl(url) {
+  const [cmd, args] = isWindows ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref()
+  say(`Opened ${url}`)
 }
 
 function openDiff(ev, here) {
-  const snap = path.join(S.snapDir ?? dir, `${ev.id}-${path.basename(ev.file)}`)
+  const snap = path.join(S.snapDir ?? os.tmpdir(), `${ev.id}-${path.basename(ev.file)}`)
   const hasSnap = fs.existsSync(snap)
   if (!here) {
     const ed = S.editors[0]
-    if (!ed) return
-    const args = hasSnap ? ['--diff', snap, ev.file] : ['-g', ev.file]
-    spawn(ed.bin, args, { detached: true, stdio: 'ignore', shell: isWindows }).unref()
-    flash = `Opened in ${ed.name}`
-    return render()
+    if (!ed) return say('No editor found (Cursor, VS Code or Windsurf).')
+    spawn(ed.bin, hasSnap ? ['--diff', snap, ev.file] : ['-g', ev.file], { detached: true, stdio: 'ignore', shell: isWindows }).unref()
+    return say(`Opened in ${ed.name}`)
   }
   out.write('\x1b[?1049l\x1b[?25h')
   process.stdin.setRawMode(false)
-  showDiff(hasSnap ? snap : '', ev.file)
-  process.stdin.setRawMode(true)
-  out.write('\x1b[?1049h\x1b[?25l')
-  render()
+  import('./diff.mjs').then(({ showDiff }) => {
+    showDiff(hasSnap ? snap : '', ev.file)
+    process.stdin.setRawMode(true)
+    out.write('\x1b[?1049h\x1b[?25l')
+    render()
+  })
 }
 
 // ---------- keys ----------
 
+const focusOrder = () => layout(out.columns || 120).map(([c]) => c).filter(c => ['sessions', 'reqs', 'signals', 'middle'].includes(c)).concat(layout(out.columns || 120).some(([c]) => c === 'stack') ? ['reqs', 'middle'] : [])
+
 function onKey(k) {
+  if (compose?.mode === 'search') {
+    if (k === '\x1b') { search = ''; compose = null } else if (k === '\r') compose = null
+    else if (k === '\x7f') compose.text = [...compose.text].slice(0, -1).join('')
+    else if (!k.startsWith('\x1b')) compose.text += k.replace(/[\x00-\x1f]/g, '')
+    if (compose) search = compose.text
+    sel.reqs = 0
+    return render()
+  }
   if (compose) {
     if (k === '\x1b') compose = null
     else if (k === '\r') {
@@ -455,120 +535,112 @@ function onKey(k) {
     else if (!k.startsWith('\x1b')) compose.text += k.replace(/[\r\n]+/g, ' ').replace(/[\x00-\x1f]/g, '')
     return render()
   }
-  const evs = shownEvents()
-  const ev = evs[sel.activity]
-  const req = S.reqs[sel.reqs]
-  // An imported session has no Praetorium running in it to receive anything.
-  if (S.imported && 'cnfiadg'.includes(k)) {
-    flash = 'This session was imported from its transcript. Reopen it in Claude Code to reply, accept or instruct.'
-    setTimeout(() => { flash = ''; render() }, 4000)
-    return render()
-  }
+  const req = shownReqs()[sel.reqs]
+  const inSignals = focus === 'signals' || (focus === 'middle' && middle === 'signals')
+  const sig = inSignals ? openSignals()[sel.signals] : undefined
+  const ev = focus === 'middle' && middle === 'activity' ? shownEvents()[sel.activity] : focus === 'middle' && middle === 'tests' ? testRuns()[sel.tests]
+    : sig ? S.events.find(e => e.id === sig.eventId) : undefined
+  const listOf = () => (focus === 'reqs' ? 'reqs' : inSignals ? 'signals' : focus === 'middle' ? middle : null)
+  const order = focusOrder()
   switch (k) {
     case 'q': case '\x03': return quit()
-    case '\t': case '\x1b[C': {
-      const order = (out.columns || 120) >= 140 ? ['sessions', 'reqs', 'activity'] : ['reqs', 'activity']
-      focus = order[(order.indexOf(focus) + 1) % order.length]
-      break
-    }
-    case '\x1b[D': {
-      const order = (out.columns || 120) >= 140 ? ['sessions', 'reqs', 'activity'] : ['reqs', 'activity']
-      focus = order[(order.indexOf(focus) - 1 + order.length) % order.length]
-      break
-    }
+    case '\t': case '\x1b[C': focus = order[(order.indexOf(focus) + 1) % order.length] ?? 'reqs'; break
+    case '\x1b[D': focus = order[(order.indexOf(focus) - 1 + order.length) % order.length] ?? 'reqs'; break
     case '[': return switchSession(-1)
-    case ']': case 's': return switchSession(1)
-    case '\x1b[A': case 'k': if (focus === 'sessions') return switchSession(-1); sel[focus] = Math.max(0, sel[focus] - 1); break
-    case '\x1b[B': case 'j': if (focus === 'sessions') return switchSession(1); sel[focus] = Math.min((focus === 'reqs' ? S.reqs.length : evs.length) - 1, sel[focus] + 1); break
+    case ']': return switchSession(1)
+    case '\x1b[A': case 'k': if (focus === 'sessions') return switchSession(-1); if (listOf()) sel[listOf()] = Math.max(0, sel[listOf()] - 1); break
+    case '\x1b[B': case 'j': if (focus === 'sessions') return switchSession(1); if (listOf()) { sel[listOf()]++; clampSel() } break
+    case '1': middle = 'activity'; focus = 'middle'; break
+    case '2': middle = 'plan'; focus = 'middle'; break
+    case '3': middle = 'tests'; focus = 'middle'; break
+    case '4': middle = 'preview'; focus = 'middle'; break
+    case '5': if (order.includes('signals')) focus = 'signals'; else { middle = 'signals'; focus = 'middle' } break
+    case 'S': prefs.showSessions = !prefs.showSessions; savePrefs(); if (focus === 'sessions') focus = 'reqs'; break
+    case 'h': prefs.showHeadless = !prefs.showHeadless; savePrefs(); say(prefs.showHeadless ? 'Showing headless (claude -p) sessions' : 'Hiding headless sessions'); return
+    case 'l': prefs.dark = !isDark(); savePrefs(); break
     case 'v': showAll = !showAll; sel.activity = 0; break
-    case 'l': darkOverride = !isDark(); break
-    case 'g': send({ type: 'gaps' }, 'Asked the agent to close the gaps'); return
+    case '/': focus = 'reqs'; compose = { mode: 'search', text: search }; break
+    case 'F': { const i = REQ_FILTERS.findIndex(f => f.value === reqFilter); reqFilter = REQ_FILTERS[(i + 1) % REQ_FILTERS.length].value; sel.reqs = 0; break }
+    case 'g': return send({ type: 'gaps' }, 'Asked the agent to close the gaps')
     case 'a': if (focus === 'reqs' && req) return send({ type: 'accept', reqId: req.id }, `${req.id} accepted as verified`); break
     case 'd': if (focus === 'reqs' && req) return send({ type: 'defer', reqId: req.id }, `${req.id} deferred`); break
-    case 'f': if (req) compose = { mode: 'refine', text: '', interrupt: false, eventId: focus === 'activity' ? ev?.id : undefined, refines: req.id }; break
-    case 'c': case '\r': if (focus === 'activity' && ev) compose = { mode: 'comment', text: '', interrupt: false, eventId: ev.id }; break
-    case 'n': if (ev || focus === 'reqs') compose = { mode: 'requirement', text: '', interrupt: false, eventId: focus === 'activity' ? ev?.id : undefined }; break
-    case 'i': compose = { mode: 'redirect', text: '', interrupt: false, eventId: focus === 'activity' ? ev?.id : undefined }; break
-    case 'o': if (focus === 'activity' && ev?.kind === 'code' && ev.file) return openDiff(ev, false); break
-    case 't': if (focus === 'activity' && ev?.kind === 'code' && ev.file) return openDiff(ev, true); break
+    case 'x':
+      if (focus === 'reqs' && req?.conflict) return send({ type: 'resolve', reqId: req.id }, `${req.id} conflict marked resolved`)
+      if (sig) return send({ type: 'dismiss', signalId: sig.id }, 'Signal dismissed')
+      break
+    case 'f': if (req && canSend()) compose = { mode: 'refine', text: '', interrupt: false, refines: req.id }; break
+    case '\r':
+      if (sig && sig.eventId && S.events.some(e => e.id === sig.eventId)) { middle = 'activity'; showAll = true; focus = 'middle'; sel.activity = shownEvents().findIndex(e => e.id === sig.eventId); break }
+      if (focus === 'middle' && middle === 'preview' && previews()[sel.preview]) return openUrl(previews()[sel.preview].url)
+      if (ev && canSend()) compose = { mode: 'comment', text: '', interrupt: false, eventId: ev.id }
+      break
+    case 'c': if (ev && canSend()) compose = { mode: 'comment', text: '', interrupt: false, eventId: ev.id }; break
+    case 'n':
+      if (sig) return send({ type: 'reply', eventId: sig.eventId, text: sig.text, mode: 'requirement', refines: 'new' }, 'Made it a requirement')
+      if (canSend()) compose = { mode: 'requirement', text: '', interrupt: false, eventId: ev?.id }
+      break
+    case 'i': if (canSend()) compose = { mode: 'redirect', text: '', interrupt: false, eventId: ev?.id }; break
+    case 'o': if (ev?.kind === 'code' && ev.file) return openDiff(ev, false); break
+    case 't': if (ev?.kind === 'code' && ev.file) return openDiff(ev, true); break
   }
   render()
 }
 
 function quit(code = 0) {
   out.write('\x1b[0m\x1b[?25h\x1b[?1049l')
-  if (code === RELOAD) {
-    try { fs.writeFileSync(path.join(dir, 'viewer.select'), cur) } catch { /* starts on the newest */ }
-  } else {
-    try { fs.rmSync(ALIVE, { force: true }) } catch { /* stale heartbeat expires */ }
-  }
+  if (code === RELOAD) { try { fs.writeFileSync(path.join(dir, 'viewer.select'), cur) } catch { /* starts on the newest */ } }
+  else { try { fs.rmSync(ALIVE, { force: true }) } catch { /* expires */ } }
   process.exit(code)
 }
 
-// Heartbeat, a switch asked for by /ledger window, and a reload when this file changes.
-// A focus request older than this window is stale; anything after it is new.
-let focusSeen = Date.now()
+// Heartbeat; a switch asked for by /ledger window (anything newer than this window).
+let focusSeen = now()
 function heartbeat() {
   try {
     fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(ALIVE, String(Date.now()))
+    fs.writeFileSync(ALIVE, String(now()))
     const st = fs.statSync(FOCUS, { throwIfNoEntry: false })
     if (st && st.mtimeMs > focusSeen) {
       focusSeen = st.mtimeMs
       const id = fs.readFileSync(FOCUS, 'utf8').trim()
-      if (id && id !== cur) {
-        cur = id
-        sel.reqs = 0
-        sel.activity = 0
-        flash = 'Switched to the session that ran /ledger window'
-        setTimeout(() => { flash = ''; render() }, 3000)
-        load()
-      }
+      if (id && id !== cur) { cur = id; for (const k of Object.keys(sel)) sel[k] = 0; load(); say('Switched to the session that ran /ledger window') }
     }
-  } catch {
-    // the next beat tries again
-  }
+  } catch { /* next beat */ }
 }
+
+// Files of sessions untouched for a month are dropped.
+function prune() {
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^(state|inbox|alive|import)-/.test(f)) continue
+      const p = path.join(dir, f)
+      if (now() - fs.statSync(p).mtimeMs > MONTH) fs.rmSync(p, { force: true })
+    }
+  } catch { /* next start */ }
+}
+
+// Restart when the program changes: the binary itself, or the source while developing.
+const watched = G.isCompiled ? [process.execPath] : ['ledger-view.mjs', 'cli.mjs', 'diff.mjs', '../hooks/work.ts', '../hooks/theme.ts']
+  .map(f => fileURLToPath(new URL(f, import.meta.url)))
+for (const f of watched) fs.watchFile(f, { interval: 1000 }, (a, b) => { if (a.mtimeMs !== b.mtimeMs) quit(RELOAD) })
+
+prune()
+indexTranscripts()
 setInterval(heartbeat, 1000)
 heartbeat()
-fs.watchFile(SELF, { interval: 1000 }, (now, before) => {
-  if (now.mtimeMs !== before.mtimeMs) quit(RELOAD)
-})
+setInterval(scan, 500)
+setInterval(() => { indexTranscripts(); refreshTitles(); render() }, 15_000)
+setInterval(render, 5000) // liveness changes with time alone
 
 out.write('\x1b[?1049h\x1b[?25l')
 process.stdin.setRawMode(true)
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', data => {
-  // Arrow keys arrive as one escape sequence; pasted text as one chunk.
   const keys = compose ? (data.startsWith('\x1b[') ? [data] : data.length > 1 && !data.includes('\r') ? [data] : [...data]) : data.match(/\x1b\[[A-D]|[\s\S]/g) ?? []
   for (const k of keys) onKey(k)
 })
 out.on('resize', render)
 process.on('SIGTERM', () => quit())
-setInterval(scan, 500)
 scan()
+refreshTitles()
 render()
-
-function gitDiff(snap, file) {
-  const args = snap
-    ? ['--no-pager', 'diff', '--no-index', '--color=always', '--', snap, file]
-    : ['--no-pager', '-C', path.dirname(file), 'diff', '--color=always', '--', file]
-  const r = spawnSync('git', args, { encoding: 'utf8' })
-  if (r.error) return `git was not found, so the diff cannot be shown.\n`
-  return r.stdout || 'No changes.\n'
-}
-
-// Shows a diff in this terminal: through less where it exists, else printed with a key to close.
-function showDiff(snap, file) {
-  const text = gitDiff(snap, file)
-  const canPage = !isWindows && process.env.TERM && process.env.TERM !== 'dumb'
-  if (canPage && !spawnSync('less', ['-R'], { input: text, stdio: ['pipe', 'inherit', 'inherit'] }).error) return
-  process.stdout.write(text + '\n\x1b[2mPress any key to close.\x1b[0m')
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true)
-    const buf = Buffer.alloc(8)
-    try { fs.readSync(0, buf, 0, 8, null) } catch { /* closed */ }
-    process.stdin.setRawMode(false)
-  }
-  process.stdout.write('\n')
-}
