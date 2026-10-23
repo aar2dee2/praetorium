@@ -289,6 +289,8 @@ async function snapshot($: $T, ev: ActivityEvent) {
 
 async function openDiff($: $T, ev: ActivityEvent, how: string) {
   if (!ev.file) return
+  // Never read or show a file that may hold secrets, not even as a diff.
+  if (isSecretPath(ev.file)) return void $.ui.toast(`${base(ev.file)} may hold secrets, so Praetorium doesn't open its diff.`)
   const snap = snapOf(ev)
   const hasSnap = await $.fs.exists(snap).catch(() => false)
   if (how === 'terminal') {
@@ -401,6 +403,7 @@ async function readThemeSource($: $T, from: string): Promise<string> {
 }
 
 async function importTheme($: $T, from: string): Promise<Theme> {
+  if (!/^https?:/i.test(from) && isSecretPath(from)) throw new Error('that file may hold secrets, so Praetorium will not read it')
   if (/\.json$/i.test(from) && !/^https?:/i.test(from)) {
     const own = ownThemeFile(String(await $.fs.read(from)))
     if (own) return own

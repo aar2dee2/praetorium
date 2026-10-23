@@ -158,6 +158,12 @@ Missing colours come from the default theme, and any colour too faint to read on
 - **Imports and theme imports:** one Haiku call each.
 - **Files:** none in your projects. Everything lives in `~/.claude/praetorium`: one small ledger per session (dropped after 30 days unused), pre-edit copies for diffs in `snapshots/` (dropped after 7 days; files that may hold secrets, like `.env` or keys, are never copied), and the program in `bin/` (older versions removed).
 
+## Your secrets
+
+Praetorium never reads env files or other files that may hold secrets: `.env` and every `.env.*`, `.npmrc`, `.netrc`, `.pgpass`, SSH keys (`id_rsa`, `id_ed25519`, `id_ecdsa`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials*` and `secret(s).*`. It doesn't copy them for diffs, doesn't open their diffs (in the pane, the window or the program), and won't import a theme from one. When the agent edits such a file, the activity shows that it did, never what's inside.
+
+It does read a few environment *variables*, only to find its folders and the right terminal: `HOME` / `USERPROFILE`, `CLAUDE_CONFIG_DIR`, `TMPDIR` / `TEMP` / `TMP`, `SHELL`, `OS`, `CLAUDE_CODE_ENTRYPOINT`, and in the window `TERM`, `TERM_PROGRAM`, `COLORTERM`, `WT_SESSION`, `KITTY_WINDOW_ID`. Nothing else, and none are stored or sent anywhere.
+
 ## How it works
 
 Praetorium is a Claude Code plugin made of function hooks (`hooks/register.tsx`):

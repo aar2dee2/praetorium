@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
+import { isSecretPath } from '../hooks/work.ts'
+
 const isWindows = process.platform === 'win32'
 
 function gitDiff(snap, file) {
@@ -16,6 +18,11 @@ function gitDiff(snap, file) {
 }
 
 export function showDiff(snap, file) {
+  // The program can be run directly too: the same rule as the window and the plugin.
+  if (isSecretPath(file)) {
+    process.stdout.write(`${path.basename(file)} may hold secrets, so Praetorium doesn't show its diff.\n`)
+    return
+  }
   const text = gitDiff(snap, file)
   const canPage = !isWindows && process.env.TERM && process.env.TERM !== 'dumb'
   if (canPage && !spawnSync('less', ['-R'], { input: text, stdio: ['pipe', 'inherit', 'inherit'] }).error) return

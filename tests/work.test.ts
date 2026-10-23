@@ -79,3 +79,10 @@ describe('safety', () => {
     expect(l?.cmd).toEqual(['cmd', '/c', 'start', 'Praetorium', 'C:/Users/A B/praetorium.exe', 'view', 'C:/Users/A B/.claude/praetorium'])
   })
 })
+
+describe('env files', () => {
+  test('every common env-file name counts as secret', async () => {
+    for (const f of ['.env', '.env.local', '.env.production', '.env.development.local', '/repo/apps/web/.env.test', 'C:\\repo\\.env'])
+      expect(isSecretPath(f)).toBe(true)
+  })
+})

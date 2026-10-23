@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
 import { DEFAULT_THEME, palette } from '../hooks/theme.ts'
-import { REQ_FILTERS, filterReqs, gapOf, isVerified } from '../hooks/work.ts'
+import { REQ_FILTERS, filterReqs, gapOf, isSecretPath, isVerified } from '../hooks/work.ts'
 
 const G = globalThis.PRAETORIUM ?? { args: process.argv.slice(2), self: [process.execPath, process.argv[1]], isCompiled: false }
 const HOME = os.homedir()
@@ -502,6 +502,8 @@ function openUrl(url) {
 }
 
 function openDiff(ev, here) {
+  // Never read or show a file that may hold secrets, not even as a diff.
+  if (isSecretPath(ev.file)) return say(`${path.basename(ev.file)} may hold secrets, so Praetorium doesn't open its diff.`)
   const snap = path.join(S.snapDir ?? os.tmpdir(), `${ev.id}-${path.basename(ev.file)}`)
   const hasSnap = fs.existsSync(snap)
   if (!here) {
