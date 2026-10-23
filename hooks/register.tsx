@@ -109,6 +109,8 @@ const hhmm = (t: number) => {
 }
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 const nextId = (reqs: Requirement[]) => `R${reqs.length + 1}`
+// The app lists sessions without a project folder under "This computer".
+const projectName = (dir: string) => (/[\\/]scratch-workspaces[\\/]/.test(dir) ? 'This computer' : base(dir))
 const uid = () => `${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const isDone = (r: Requirement) => (r.status === 'verified' && !r.needsReverify) || r.status === 'deferred'
 
@@ -772,7 +774,7 @@ async function importSessions($: $T, days: number): Promise<string> {
       const { reqs, events } = await ledgerOf($, s)
       tagged += reqs.length
       await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
-        sessionId: s.sessionId, project: base(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
+        sessionId: s.sessionId, project: projectName(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
         imported: true, hasEnded: false, isWorking: false,
         reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
       }))
@@ -919,8 +921,7 @@ export const register: Register = on => {
     try {
       sessionId = await $.session.id()
       const root = await $.session.root()
-      // The app lists sessions without a project folder under "This computer".
-      project = /[\\/]scratch-workspaces[\\/]/.test(root) ? 'This computer' : base(root)
+      project = projectName(root)
       entry = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) ?? ''
       hasEnded = false
       storeKey = `s:${sessionId}`

@@ -68,6 +68,8 @@ const inboxFile = () => path.join(dir, `inbox-${cur}.jsonl`)
 const aliveAt = id => { try { return fs.statSync(path.join(dir, `alive-${id}`)).mtimeMs } catch { return 0 } }
 const isLive = st => !st.imported && !st.hasEnded && now() - aliveAt(st.sessionId) < LIVE_MS
 const isHeadless = st => /^sdk/.test(st.entry ?? '')
+// Sessions without a project folder (named scratch-…, or imported by 0.2) sit under "This computer", as in the app.
+const projectOf = st => (/^scratch-\d{4}-\d{2}-\d{2}-/.test(st.project ?? '') ? 'This computer' : st.project || 'Other')
 const nameOf = st => titles.get(st.sessionId)?.title || st.title || 'No prompt yet'
 
 // One theme and one mode for the whole window: the newest session's theme, your own light/dark.
@@ -187,7 +189,7 @@ function sessionLines(w) {
   const list = sessionList()
   const lines = [[seg(`SESSIONS  ${list.length}`, P.text2, undefined, true)], []]
   const groups = new Map()
-  for (const st of list) groups.set(st.project || 'Other', [...(groups.get(st.project || 'Other') ?? []), st])
+  for (const st of list) groups.set(projectOf(st), [...(groups.get(projectOf(st)) ?? []), st])
   for (const [project, group] of groups) {
     lines.push([seg(project, P.text3)])
     for (const st of group) {
@@ -391,7 +393,7 @@ function render() {
   const st = sessions.get(cur)?.state
   const state = !st ? seg('no session', P.text3) : st.imported ? seg('imported · read-only until reopened', P.warn)
     : !isLive(st) ? seg('not running · nothing can be sent', P.warn) : st.isWorking ? seg('● working', P.active) : seg('○ idle', P.done)
-  const rows = [{ line: [seg(' Ledger ', P.text, undefined, true), seg(` ${S.project || ''}${st ? ` · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
+  const rows = [{ line: [seg(' Ledger ', P.text, undefined, true), seg(` ${st ? `${projectOf(st)} · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
     seg(`   ${L.length} requirements · `, P.text3), seg(`${verified} verified`, P.done)] }, { line: [] }]
   const cols = layout(W)
   const hasSignalsCol = cols.some(([c]) => c === 'signals')

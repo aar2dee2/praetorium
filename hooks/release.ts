@@ -4,10 +4,10 @@ export const RELEASE: { version: string; repo: string; sha256: Record<string, st
   version: '0.3.0',
   repo: 'aar2dee2/praetorium',
   sha256: {
-    "praetorium-darwin-arm64": "c25fac4d5bda0e5ec2339e860c2c47adb79efc46f1c125bed8e23d1e5241293e",
-    "praetorium-darwin-x64": "bfa373a09a86a662ef89f738b306773a7487256c505eb0affb1d656f2584f9c9",
-    "praetorium-linux-x64": "185fbb758136b80077309534687d56c64e2e140857b9b75aac01efed71016bb5",
-    "praetorium-linux-arm64": "90c91673f4ba42dfab3d7c0af419cc753521b85e0a35efd4ab94fb6a46192357",
-    "praetorium-windows-x64.exe": "aca2dcc3a09ad87194a847497ef035c6785d8b90253ef0d5d467622c732651df"
+    "praetorium-darwin-arm64": "8d5442c462c5179edaf90e778074f2babe7dd9364782332c48195ce06e16f8d5",
+    "praetorium-darwin-x64": "e279ba6eb3434ed034316e5ffc670e47a59e3982c8aaf97d17363c56f3ca2cae",
+    "praetorium-linux-x64": "d50f8759ab335914621f9934cc7bafd8ec764351dc7f1eb2d5a120dce686eaa0",
+    "praetorium-linux-arm64": "5dbd5654c0633a5161ff9d3caf808b705f9bbb391f154125e0f65780cece7425",
+    "praetorium-windows-x64.exe": "761019c20d9fe489e53e6c17ab6ff7b2ae72693dcb59afcf422fe12c33ffc69d"
   },
 }
