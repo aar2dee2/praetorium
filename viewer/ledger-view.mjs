@@ -189,11 +189,26 @@ function refreshTitles() {
   }
 }
 
+// One order for drawing the list and for [ and ]: projects, then sessions within each,
+// most recently active first. It is worked out again only when a session appears or goes
+// (or headless sessions are shown or hidden), so it holds still while you move through it.
+let order = []
+let orderKey = ''
 function sessionList() {
-  return [...sessions.values()]
+  const shown = [...sessions.values()]
     .map(x => x.state)
     .filter(st => now() - (st.at ?? 0) < MONTH && (prefs.showHeadless || !isHeadless(st)))
-    .sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || (b.at ?? 0) - (a.at ?? 0))
+  const key = shown.map(st => st.sessionId).sort().join(',')
+  if (key !== orderKey) {
+    orderKey = key
+    const groups = new Map()
+    for (const st of [...shown].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))) {
+      groups.set(projectOf(st), [...(groups.get(projectOf(st)) ?? []), st.sessionId])
+    }
+    order = [...groups.values()].flat()
+  }
+  const byId = new Map(shown.map(st => [st.sessionId, st]))
+  return order.map(id => byId.get(id)).filter(Boolean)
 }
 
 // ---------- columns ----------
@@ -201,8 +216,13 @@ function sessionList() {
 function sessionLines(w) {
   const list = sessionList()
   const lines = [[seg(`SESSIONS  ${list.length}`, P.text2, undefined, true)], []]
-  const groups = new Map()
-  for (const st of list) groups.set(projectOf(st), [...(groups.get(projectOf(st)) ?? []), st])
+  // Consecutive runs of one project, in the same order [ and ] move through.
+  const groups = []
+  for (const st of list) {
+    const last = groups[groups.length - 1]
+    if (last && last[0] === projectOf(st)) last[1].push(st)
+    else groups.push([projectOf(st), [st]])
+  }
   for (const [project, group] of groups) {
     lines.push([seg(project, P.text3)])
     for (const st of group) {
