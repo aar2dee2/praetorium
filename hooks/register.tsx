@@ -795,9 +795,11 @@ async function readPast($: $T, args: string[]): Promise<PastSession[]> {
 }
 
 // One Haiku call turns a whole past conversation into requirements; tool calls become events.
-async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]; events: ActivityEvent[] }> {
+async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]; events: ActivityEvent[]; failed?: string }> {
   const res = await $.model.complete({ model: HAIKU, system: BACKFILL_SYSTEM, prompt: backfillPrompt(past.prompts), maxTokens: 8000 })
-  const items = res.isAnswered ? parseBackfill(res.text, past.prompts.length) : []
+  // No answer is not "no requirements": say so, and save nothing, so a later import tries again.
+  if (!res.isAnswered) return { reqs: [], events: [], failed: res.reason === 'api-error' ? `the model answered ${res.status ?? 'an error'}` : String(res.reason) }
+  const items = parseBackfill(res.text, past.prompts.length)
   const reqs: Requirement[] = []
   const byOwnId = new Map<string, string>()
   for (const item of items) {
@@ -833,10 +835,17 @@ async function importSessions($: $T, days: number): Promise<string> {
   const past = await readPast($, ['--days', String(days), '--max', '12', '--skip', [...existing, sessionId].join(',')])
   const [theme, view] = await Promise.all([read($, themeA), read($, viewA)])
   let tagged = 0
+  let imported = 0
+  const failures: string[] = []
   // A few at a time: one Haiku call each.
   for (let i = 0; i < past.length; i += 4) {
     await Promise.all(past.slice(i, i + 4).map(async s => {
-      const { reqs, events } = await ledgerOf($, s)
+      const { reqs, events, failed } = await ledgerOf($, s)
+      if (failed) {
+        failures.push(failed)
+        return
+      }
+      imported++
       tagged += reqs.length
       await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
         sessionId: s.sessionId, project: projectName(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
@@ -845,9 +854,11 @@ async function importSessions($: $T, days: number): Promise<string> {
       }))
     }))
   }
-  return past.length
-    ? `Imported ${past.length} session${past.length === 1 ? '' : 's'} from the last ${days} day${days === 1 ? '' : 's'} (${tagged} requirements). They show in /ledger window, read-only until reopened.`
-    : `No sessions from the last ${days} day${days === 1 ? '' : 's'} left to import.`
+  const span = `the last ${days} day${days === 1 ? '' : 's'}`
+  if (!past.length) return `No sessions from ${span} left to import.`
+  const done = imported ? `Imported ${imported} session${imported === 1 ? '' : 's'} from ${span} (${tagged} requirements). They show in /ledger window, read-only until reopened.` : ''
+  const notDone = failures.length ? `${failures.length} session${failures.length === 1 ? '' : 's'} could not be read (${[...new Set(failures)].join('; ')}); /ledger import tries again.` : ''
+  return [done, notDone].filter(Boolean).join(' ')
 }
 
 // A session reopened after Praetorium was installed starts from its own transcript.
