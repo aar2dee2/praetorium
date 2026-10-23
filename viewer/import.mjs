@@ -124,6 +124,11 @@ for (const { file } of transcripts()) {
     console.error(`skipped ${file}: ${err.message}`)
   }
 }
-fs.mkdirSync(path.dirname(outFile), { recursive: true })
-fs.writeFileSync(outFile, JSON.stringify(sessions))
-console.log(`${sessions.length} sessions`)
+// "-" hands the result straight back on stdout, so nothing is left on disk.
+if (outFile === '-') {
+  process.stdout.write(JSON.stringify(sessions))
+} else {
+  fs.mkdirSync(path.dirname(outFile), { recursive: true })
+  fs.writeFileSync(outFile, JSON.stringify(sessions))
+  console.log(`${sessions.length} sessions`)
+}

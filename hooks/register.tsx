@@ -630,6 +630,21 @@ async function migrateLedgers($: $T) {
   await $.fs.write(marker, String(now())).catch(() => undefined)
 }
 
+// Removes what 0.2 and the 0.3.0 importer left in the temp folder (ledger copies, import
+// output, an old heartbeat), once. Pre-edit copies for diffs stay: they're still in use.
+async function cleanTemp($: $T) {
+  const marker = join(plat.data, 'cleaned-0.3.1')
+  if (await $.fs.exists(marker).catch(() => true)) return
+  const stale = (await $.fs.list(plat.tmp).catch(() => []))
+    .map(f => f.name)
+    .filter(n => /^(state|inbox|import)-.+\.jsonl?$|^import\.lock$|^viewer\.(alive|focus|select)$/.test(n))
+    .map(n => join(plat.tmp, n))
+  if (stale.length) {
+    await run($, plat.os === 'windows' ? ['cmd', '/c', 'del', '/q', ...stale.map(f => f.replace(/\//g, '\\'))] : ['rm', '-f', ...stale])
+  }
+  await $.fs.write(marker, String(now())).catch(() => undefined)
+}
+
 // ---------- the praetorium program ----------
 
 // The window, importer and diff run as one small program, downloaded only when asked.
@@ -723,10 +738,12 @@ async function projectsDir($: $T): Promise<string> {
 // Runs viewer/import.mjs, which streams the transcripts and keeps only what the ledger needs.
 async function readPast($: $T, args: string[]): Promise<PastSession[]> {
   if (!plat.runner.length) throw new Error('the Praetorium program is not installed (/ledger install)')
-  const out = join(plat.tmp, `import-${sessionId}.json`)
-  const r = await $.process.run(programArgs('import', await projectsDir($), out, ...args), { timeoutMs: 120_000 })
+  // The result comes back on stdout (well under its 4 MiB limit: prompts, replies and
+  // tool names only), so the import leaves no file behind.
+  const r = await $.process.run(programArgs('import', await projectsDir($), '-', ...args), { timeoutMs: 120_000 })
   if (r.exitCode !== 0) throw new Error(r.stderr.trim() || `import exited with ${r.exitCode}`)
-  return JSON.parse(String(await $.fs.read(out))) as PastSession[]
+  if (r.isStdoutTruncated) throw new Error('the import was too large to read; try fewer days')
+  return JSON.parse(r.stdout) as PastSession[]
 }
 
 // One Haiku call turns a whole past conversation into requirements; tool calls become events.
@@ -940,6 +957,7 @@ export const register: Register = on => {
     }
     plat = await detect($).catch(() => plat)
     await migrateLedgers($)
+    await cleanTemp($)
     if ((await read($, reqsA)).length === 0) {
       // Nothing in session state (a fresh process, or a reload that lost it): take over this
       // session's ledger file if it has requirements: one /ledger import wrote, one an earlier
