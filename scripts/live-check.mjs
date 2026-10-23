@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-import { BACKFILL_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseTagged, tagPrompt } from '../hooks/tagging.ts'
+import { TAG_SYSTEM, buildLedger, parseTagged, tagPrompt } from '../hooks/tagging.ts'
 import { IMPORT_SYSTEM, colourLines, contrast, pageParts, sourceKind, themeFromReply } from '../hooks/theme.ts'
 import { LINUX, MAC, WINDOWS, launchCommand } from '../hooks/platform.ts'
 
@@ -132,8 +132,8 @@ async function importOne(id) {
   if (!past) return
   const leak = past.prompts.some(p => /<system-reminder>|<command-name>/.test(p.text))
   result(!leak, 'injected reminders and command wrappers are left out')
-  const items = parseBackfill(haiku(BACKFILL_SYSTEM, backfillPrompt(past.prompts)), past.prompts.length)
-  result(items.length > 0, 'Haiku listed its requirements', items.map(i => `${i.id}${i.refines ? `→${i.refines}` : ''} ${i.title}`).join('\n      '))
+  const built = await buildLedger(past.prompts, past.replies, async (system, prompt) => haiku(system, prompt))
+  result(!built.failed && built.items.length > 0, 'Haiku listed its requirements', built.failed ?? built.items.map(i => `${i.id} [${i.status}] ${i.title}`).join('\n      '))
 }
 
 const checks = { tagging, theme, terminal, import: importOne }

@@ -7,9 +7,10 @@ In a long Claude Code session, what you asked for, what the agent plans, what it
 Praetorium keeps those apart:
 
 - **Requirements ledger.** Each prompt you send is split into separate requirements (R1, R2…) by Claude Haiku, with your exact words kept. A later correction is linked to the requirement it changes; nothing is silently overwritten. You don't label anything.
-- **Activity stream.** Edits, commands, tests, plans and the agent's messages. Reply to any one of them as a **comment** (the agent never sees it), a **new or refined requirement**, or an **instruction** to the agent, optionally interrupting it first. Each reply shows whether the agent actually received it.
+- **Activity stream.** Edits, commands, tests, plans and the agent's messages, each linked to the requirements its turn worked on, so selecting a requirement shows only what was done for it. Reply to any one of them as a **comment** (the agent never sees it), a **new or refined requirement**, or an **instruction** to the agent, optionally interrupting it first. Each reply shows whether the agent actually received it.
 - **Completion audit.** A requirement counts as verified only with evidence: a passing test, build or check run after the last edit, or your own acceptance. The agent saying it's done doesn't count. When you settle for something "for now", it's marked **Done for now · revisit** with the condition you gave ("if contributor activity grows"), and listed under *To revisit* instead of as a gap.
-- **Signals.** Tool calls that failed or were refused, and things the agent found that were new or unexpected, in one column so you don't have to dig through the chat.
+- **Statuses that follow the work.** At the end of every turn, Haiku is given every requirement with its status, the edits and tests the agent just ran, and its reply, and moves the requirements that turn affected: *in progress*, *done (not verified)*, *blocked* or *needs you*. The agent can report progress itself too. Only *verified* needs evidence.
+- **Signals.** Tool calls that failed or were refused, and things the agent found that were new or unexpected, in one column so you don't have to dig through the chat. Each keeps its context: the requirement, your message that started the turn, what the agent ran and the first of what came back.
 - **Conflicts.** When a later message contradicts an earlier requirement, or the agent's work goes against one, the requirement is flagged until you resolve it, and the agent is told to ask you which wins. A deliberate change ("actually, drop the search box") usually counts as a refinement instead; the line between the two is a judgment call, so now and then a correction is flagged as a conflict, and `x` settles it.
 - **Plan, Tests and Preview.** The agent's todo list with each step linked to the requirements it serves (and the ones it leaves out), every test or build run with the requirements it's evidence for, and the dev servers or preview links its commands printed.
 - **Diffs where you read code.** A change opens in Cursor, VS Code or Windsurf, or as a diff in the terminal. No diffs are drawn in the ledger itself.
@@ -18,16 +19,16 @@ It shows up in two places: a **pane** inside each Claude Code session, and a **t
 
 <!-- Launch video: replace this comment with the link, e.g. [▶ Watch the launch video](https://…) -->
 
-![Praetorium's terminal dashboard: sessions, requirements, signals, activity, details and the completion audit](docs/dashboard.svg)
+![Praetorium's terminal dashboard: sessions, requirements, activity, signals, details and the completion audit](docs/dashboard.svg)
 
 1. **Title bar:** the session you're looking at, whether its agent is working, and how many requirements are verified.
 2. **Sessions:** every Claude Code session running Praetorium, by project, named as Claude Code names them: ● working, ○ idle, ◌ imported, `·` not running. `S` hides this column.
 3. **Requirements:** what you asked for, split from your prompts, each with its status. `/` searches, `F` filters.
 4. **Conflict:** a later message, or the agent's work, contradicts this requirement. `x` marks it resolved.
-5. **Signals:** tool calls that failed or were refused, and things the agent found that you may want to act on.
-6. **Activity · Plan · Tests · Preview:** what the agent did, its plan linked to your requirements, every test or build run, and preview links.
+5. **Activity · Plan · Tests · Preview:** what the agent did for the requirement you have selected (`A` shows all of it), its plan linked to your requirements, every test or build run, and preview links.
+6. **Signals:** tool calls that failed or were refused, and things the agent found that you may want to act on. Select one to see its context: the requirement, what you had asked, what the agent ran and what came back.
 7. **Details:** the selected item: your exact words, refinements, plan steps, evidence, and what you can do with it.
-8. **Completion audit:** how many requirements are accounted for and verified, and what still stands in the way. `g` asks the agent to close the gaps.
+8. **Completion audit:** how many requirements are accounted for and verified, and what still stands in the way. `g` asks the agent to close the gaps. `C` hides it.
 9. **Keys:** everything the window does, from the keyboard.
 
 <sub>Drawn from the real window running on demo sessions (`bun scripts/screenshot.ts`).</sub>
@@ -84,9 +85,17 @@ The same, in a terminal you choose, remembered from then on. Without a name, the
 
 Downloads the `praetorium` program for your system from this repository's GitHub releases, checks it against the SHA-256 recorded in the plugin (a mismatch is deleted, never run), checks that it starts, and keeps it in `~/.claude/praetorium/bin`. Needed once per Praetorium version, for `/ledger window` and `/ledger import`.
 
+### `/ledger refresh`
+
+Reads this session's **whole** conversation, from the first message: adds any requirement the ledger missed (existing ones keep their ids) and corrects any status that's wrong. Use it if statuses look stale, for example in a session that ran before Praetorium judged progress on its own. Reads this session's transcript, so it needs your permission (below). A long session takes a minute or two.
+
 ### `/ledger import [days]`
 
-Adds sessions you started **before** installing Praetorium, read from their Claude Code transcripts: the last 2 days by default, up to 30. Each appears in the window (marked ◌, read-only) with its requirements and activity. Needs your permission first (below). Costs one Haiku call per session imported.
+Adds sessions you started **before** installing Praetorium, read from their Claude Code transcripts: the last 2 days by default, up to 30. Each appears in the window (marked ◌, read-only) with its requirements, and the status each one reached in the conversation. Needs your permission first (below).
+
+### `/ledger import refresh [days]`
+
+The same, and also rebuilds sessions imported before, so they're read with the current rules.
 
 ### `/ledger import allow` · `/ledger import revoke`
 
@@ -114,6 +123,8 @@ Titled **Praetorium - Your Claude Code Dashboard**. Sessions are listed by proje
 | ↑/↓ | Move the selection |
 | `[` · `]` | Previous / next session |
 | `S` | Show or hide the Sessions column, for more room on one session |
+| `C` | Show or hide the Completion audit (the selected item's details stay) |
+| `A` | Activity for the selected requirement only · all activity |
 | `1`–`5` | Activity, Plan, Tests, Preview, Signals |
 | `/` · `F` | Search requirements · cycle the filter (open, done but not verified, verified, to revisit, conflicts, yours, the agent's) |
 | `c` or Enter | Comment on the selected event (the agent doesn't see it) · on a signal, go to its event · on a preview, open it |
@@ -137,7 +148,8 @@ Sessions started before you installed Praetorium don't run it, so nothing in the
 - **Asked first.** The first session after installing shows a dialog explaining what would be read. Nothing is read until you choose Allow, including the session titles the window shows (until then it shows each session's first prompt). Change the answer with `/ledger import allow` or `revoke`.
 - **What is read.** From `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`): your prompts, the agent's replies, and the name and file path or command of each tool call. File contents and diffs are not kept. Nothing is written to the transcripts.
 - **When.** Once you allow it, sessions from the last 2 days are imported then, and each new session start imports any recent ones still missing (at most every 10 minutes).
-- **What it costs.** One Claude Haiku call per session imported.
+- **How it's read.** The whole conversation, from the first message, including messages sent while the agent was working, in three passes. First your asks, a few messages at a time, each pass given every requirement found so far; then a check of all your messages against the ledger for anything missed; then each requirement's status, judged against everything the agent said afterwards. Early requirements in long sessions are never dropped.
+- **What it costs.** A few Claude Haiku calls per session: about one per 5 messages.
 - **Reopen to connect.** When you reopen an old session, Praetorium loads in it and takes over its imported ledger. From there, replies, instructions and interrupts work as usual.
 
 ## Your own colours
@@ -166,13 +178,37 @@ A theme is eleven colours per mode: `bg`, `surface`, `surface2`, `border`, `text
 
 Missing colours come from the default theme, and any colour too faint to read on its background (below WCAG contrast) is replaced, so an import can't make the dashboard unreadable.
 
+## How accurate it is
+
+Measured on two of the long sessions Praetorium was built in, each requirement and status checked by Fable 5.1 against the full conversation (`bun scripts/eval-ledger.mjs <session id>`):
+
+| | Requirements that are real asks | Statuses right | Asks missed |
+|---|---|---|---|
+| Built from the whole transcript (`/ledger import`, `/ledger refresh`), 43 messages | 49/51 | 48/49 (98%) | 2 |
+| Built from the whole transcript, 89 messages | 95/102 | 85/95 (89%) | 4 |
+| Live, turn by turn, as you work (the 43 messages replayed) | 60/61 | 52/60 (87%) | 4 |
+
+Live statuses run a little behind: most of the misses are work the agent finished that was still shown in progress. Each turn's review sees only that turn, so every 6 turns every open requirement is judged again against the whole session. `/ledger refresh` reads the whole conversation again and corrects the rest. Statuses are never set to verified this way: that still needs a passing check or your acceptance.
+
 ## Cost and footprint
 
 - **Per prompt:** one short Claude Haiku call to tag requirements. It also reads the agent's previous reply (up to 1,500 characters), because a message like "can we not get X?" only reads one way in context. Headless (`claude -p`) sessions aren't tagged.
-- **Per agent turn** with a long reply: one more Haiku call, to pick out findings worth acting on and check the work against your requirements.
+- **Per agent turn:** one more Haiku call, to move requirement statuses, pick out findings worth acting on, and check the work against your requirements.
+- **Every 6 turns:** one Haiku call per 30 turns of the session so far (your messages and the agent's answers, clipped), judging every open requirement's status. A 60-turn session makes two calls each time.
 - **Per request:** about 225 tokens of tool definition, for the `ledger` tool the agent uses to report progress and evidence.
-- **Imports and theme imports:** one Haiku call each.
+- **Imports and `/ledger refresh`:** a few Haiku calls per session, more for long ones: the three passes read the whole conversation, a few messages at a time.
+- **Theme imports:** one Haiku call.
 - **Files:** none in your projects. Everything lives in `~/.claude/praetorium`: one small ledger per session (dropped after 30 days unused), pre-edit copies for diffs in `snapshots/` (dropped after 7 days; files that may hold secrets, like `.env` or keys, are never copied), and the program in `bin/` (older versions removed).
+
+## What Praetorium reads, runs and sends
+
+Everything stays on your machine, except the model calls, which go through your own Claude account like any other Claude Code request.
+
+- **Reads:** the messages you send and the agent's replies and tool calls in sessions where Praetorium runs (through Claude Code's plugin hooks). With your permission only: earlier sessions' transcripts in `~/.claude/projects` (for `/ledger import`, `/ledger refresh` and session titles in the window).
+- **Writes:** `~/.claude/praetorium` (each session's ledger, the window's settings and heartbeat, copies of files before edits for diffs) and the plugin's own store. Nothing is written into your projects or transcripts.
+- **Sends:** short Claude Haiku requests through Claude Code: your message and the agent's last reply when tagging, the requirement list and each turn's reply and work for the per-turn review, and transcripts when you import or refresh. No other server receives anything, and there is no telemetry.
+- **Fetches:** only when you ask. `/ledger install` downloads the `praetorium` program from this repository's GitHub releases (checked against its SHA-256 before it runs); `/ledger theme import <url>` fetches that page and its stylesheets.
+- **Runs:** the `praetorium` program (window, importer, diff), your terminal app to open the window, your editor to show a diff, and `git`, `curl`, `shasum`/`certutil` as named above.
 
 ## Your secrets
 
@@ -185,8 +221,8 @@ It does read a few environment *variables*, only to find its folders and the rig
 Praetorium is a Claude Code plugin made of function hooks (`hooks/register.tsx`):
 
 - `prompt.submit` tags requirements with Haiku, flags conflicts, and tells the agent the ids.
-- `tool.call` turns edits, commands, tests and plans into activity, records failed or refused calls as signals, and copies a file before it is edited (for diffs). It never fails your tool call, even if Praetorium itself errors.
-- `turn.start` / `turn.complete` track whether the agent is working, record its answers, and run the per-turn review.
+- `tool.call` turns edits, commands, tests and plans into activity, records failed or refused calls as signals (with what was run and what came back), and copies a file before it is edited (for diffs). It never fails your tool call, even if Praetorium itself errors.
+- `turn.start` / `turn.complete` track whether the agent is working, record its answers, and run the per-turn review. The requirements a turn worked on (the ones your message touched, the plan step in progress, the ones the agent reported on or the review judged) are linked to every event of that turn.
 - The `ledger` tool lets the agent report progress; `verified` is refused without a passing test, build or check after the last edit.
 - Replies reach the agent inside its running turn, start a new turn, or wait for your next prompt, and say which happened.
 - `viewer/` is the `praetorium` program (`cli.mjs`): the terminal window (`ledger-view.mjs`), which reads each session's ledger and writes your actions to an inbox the session polls; the transcript importer (`import.mjs`); and the diff view. `scripts/build.ts` compiles it per platform and records the checksums in `hooks/release.ts`.

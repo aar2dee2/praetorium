@@ -43,7 +43,7 @@ describe('signals and previews', () => {
     const r = parseReview('{"findings":[{"text":"The cache is shared across users"}],"conflicts":[{"id":"R2","reason":"wrote to /tmp"}]}')
     expect(r.findings.length).toBe(1)
     expect(r.conflicts[0]?.id).toBe('R2')
-    expect(parseReview('not json')).toEqual({ findings: [], conflicts: [] })
+    expect(parseReview('not json')).toEqual({ findings: [], conflicts: [], progress: [] })
   })
   test('the tagger can flag a conflict', async () => {
     const t = parseTagged('{"items":[{"title":"Remove search","quote":"drop search","refines":null,"conflicts":"R3","conflict_reason":"R3 adds search"}]}')
@@ -97,5 +97,13 @@ describe('done for now, to revisit', () => {
   test('the tagger can mark a requirement to revisit', async () => {
     const t = parseTagged('{"items":[{"title":"Keep audits twice a week for now","quote":"twice a week is okay for now","refines":"R44","conflicts":null,"revisit":"if contributor activity grows"}]}')
     expect(t[0]?.revisit).toBe('if contributor activity grows')
+  })
+})
+
+
+describe('judged progress', () => {
+  test('a review moves statuses, but never to verified', async () => {
+    const r = parseReview('{"findings":[],"conflicts":[],"progress":[{"id":"R1","status":"implemented","why":"tests pass"},{"id":"R2","status":"verified","why":"x"},{"id":"R3","status":"in_progress","why":"started"}]}')
+    expect(r.progress.map(p => `${p.id}:${p.status}`)).toEqual(['R1:implemented', 'R3:in_progress'])
   })
 })

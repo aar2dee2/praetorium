@@ -27,17 +27,18 @@ const reqs = [
 const ev = (id: string, kind: string, m: number, title: string, extra = {}) => ({ id, kind, at: min(m), title, ...extra })
 const events = [
   ev('d1', 'discovery', 48, 'Read SearchResult.tsx'),
-  ev('p1', 'plan', 46, 'Plan updated', { detail: '› [R1] Title, source, date\n· [R2] Tag colours\n· [R3] Summary\n· [R4] Highlight keywords' }),
-  ev('c1', 'code', 31, 'Edited SearchResult.tsx', { file: 'components/search/SearchResult.tsx', state: 'ok' }),
-  ev('m1', 'message', 30, "I've replaced the tag styling with a new set of CSS classes.", { detail: "I've replaced the tag styling with a new set of CSS classes to make the tags more compact." }),
-  ev('t1', 'test', 22, 'npm test -- search-result', { detail: 'npm test -- search-result', state: 'failed' }),
-  ev('c2', 'code', 15, 'Edited SearchResult.tsx', { file: 'components/search/SearchResult.tsx', state: 'ok' }),
-  ev('t3', 'test', 9, 'npm test -- search-result', { detail: 'npm test -- search-result', state: 'ok' }),
-  ev('c3', 'code', 4, 'Edited highlight.ts', { file: 'lib/highlight.ts', state: 'running' }),
+  ev('p1', 'plan', 46, 'Plan updated', { reqIds: ['R1', 'R2', 'R3', 'R4'], detail: '› [R1] Title, source, date\n· [R2] Tag colours\n· [R3] Summary\n· [R4] Highlight keywords' }),
+  ev('c1', 'code', 31, 'Edited SearchResult.tsx', { file: 'components/search/SearchResult.tsx', state: 'ok', reqIds: ['R1', 'R2'] }),
+  ev('m1', 'message', 30, "I've replaced the tag styling with a new set of CSS classes.", { detail: "I've replaced the tag styling with a new set of CSS classes to make the tags more compact.", reqIds: ['R1', 'R2'] }),
+  ev('t1', 'test', 22, 'npm test -- search-result', { detail: 'npm test -- search-result', state: 'failed', reqIds: ['R2'] }),
+  ev('c2', 'code', 15, 'Edited SearchResult.tsx', { file: 'components/search/SearchResult.tsx', state: 'ok', reqIds: ['R2', 'R3'] }),
+  ev('t3', 'test', 9, 'npm test -- search-result', { detail: 'npm test -- search-result', state: 'ok', reqIds: ['R1', 'R2', 'R3'] }),
+  ev('c3', 'code', 4, 'Edited highlight.ts', { file: 'lib/highlight.ts', state: 'running', reqIds: ['R4'] }),
 ]
 const signals = [
   { id: 's1', kind: 'conflict', at: min(30), text: "The agent's work goes against R2: it replaced the tag classes with new ones.", eventId: 'm1', reqId: 'R2' },
-  { id: 's2', kind: 'failed', at: min(22), text: 'Bash: 2 tests failed in search-result.test.tsx (tag colour snapshot).', eventId: 't1' },
+  { id: 's2', kind: 'failed', at: min(22), text: 'Bash: 2 tests failed in search-result.test.tsx (tag colour snapshot).', eventId: 't1', reqId: 'R2',
+    context: { ask: 'Please preserve the existing tag colors. Reuse the current classes rather than introducing new ones.', did: 'npm test -- search-result', output: '✕ renders tags with the existing colour classes\n  Expected class "tag-energy", received "chip chip--sm"\n2 failed, 14 passed' } },
   { id: 's3', kind: 'finding', at: min(14), text: 'The search API returns dates in UTC, so results near midnight show the wrong day.', eventId: 'c2' },
 ]
 const plan = [
@@ -72,7 +73,7 @@ const out = join(dir, 'frame.txt')
 const viewer = `bun viewer/cli.mjs view '${dir}' demo-search /nonexistent`
 // The terminal's size comes from stty inside the pseudo-terminal, not from COLUMNS/LINES.
 const inner = `stty cols ${COLS} rows ${ROWS}; exec ${viewer}`
-const r = Bun.spawnSync(['bash', '-c', `(sleep 2.5; printf 'q') | TERM=xterm-256color COLORTERM=truecolor script -q /dev/null bash -c "${inner}" > '${out}' 2>&1`])
+const r = Bun.spawnSync(['bash', '-c', `(sleep 2.5; printf '${process.env.SHOT_KEYS ?? ''}'; sleep 0.5; printf 'q') | TERM=xterm-256color COLORTERM=truecolor script -q /dev/null bash -c "${inner}" > '${out}' 2>&1`])
 if (r.exitCode !== 0) throw new Error('the window did not run')
 const raw = readFileSync(out, 'utf8')
 rmSync(dir, { recursive: true, force: true })
@@ -137,10 +138,11 @@ grid.forEach((cells, y) => {
 
 // Markers sit just left of each area's label, found in the frame itself.
 const lines = grid.map(cells => cells.map(c => c.ch).join(''))
+if (process.env.SHOT_TEXT) writeFileSync(process.env.SHOT_TEXT, lines.join('\n'))
 // [label, number, take the last match on its line (the details column repeats the selected id)]
 const markers: [string, string, boolean?][] = [
-  ['Praetorium - Your Claude Code Dashboard', '1'], ['SESSIONS', '2'], ['REQUIREMENTS', '3'], ['Conflict', '4'], ['SIGNALS', '5'],
-  ['1 Activity', '6'], ['R1 ', '7', true], ['COMPLETION AUDIT', '8'], ['tab column', '9'],
+  ['Praetorium - Your Claude Code Dashboard', '1'], ['SESSIONS', '2'], ['REQUIREMENTS', '3'], ['Conflict', '4'], ['1 Activity', '5'],
+  ['SIGNALS', '6'], ['R1 ', '7', true], ['COMPLETION AUDIT', '8'], ['tab column', '9'],
 ]
 for (const [label, n, last] of markers) {
   const y = last ? lines.findIndex(l => l.includes('SIGNALS')) : lines.findIndex(l => l.includes(label))

@@ -24,7 +24,6 @@ const only = opt('session')
 
 // Only the fields the ledger turns into events; file contents and diffs are dropped.
 const KEEP = ['file_path', 'notebook_path', 'command', 'description', 'pattern', 'url', 'query', 'plan', 'todos']
-const MAX_PROMPTS = 40
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
@@ -51,6 +50,13 @@ async function readTranscript(file) {
       continue
     }
     if (j.type === 'custom-title' && j.customTitle) out.title = j.customTitle
+    // A message sent while the agent was working is stored as a queued command, not a prompt.
+    if (j.type === 'attachment' && j.attachment?.type === 'queued_command' && j.attachment.origin?.kind === 'human' && !j.isSidechain) {
+      const text = humanText(String(j.attachment.prompt ?? ''))
+      const at = Date.parse(j.attachment.timestamp ?? j.timestamp ?? '') || 0
+      if (text && !text.startsWith('/')) out.prompts.push({ at, text: clip(text, 3000), lastReply: clip(lastReply, 1500), whileWorking: true })
+      continue
+    }
     if (j.isSidechain || !j.message) continue
     const at = Date.parse(j.timestamp ?? '') || 0
     if (at) {
@@ -69,7 +75,7 @@ async function readTranscript(file) {
       const isHuman = j.origin?.kind === 'human' || j.turnOrigin === 'human'
       if (isHuman && !j.isMeta) {
         const text = humanText(content)
-        if (text && !text.startsWith('/')) out.prompts.push({ at, text: clip(text, 1500), lastReply: clip(lastReply, 600) })
+        if (text && !text.startsWith('/')) out.prompts.push({ at, text: clip(text, 3000), lastReply: clip(lastReply, 1500) })
       }
     } else if (j.type === 'assistant' && Array.isArray(content)) {
       for (const b of content) {
@@ -89,9 +95,9 @@ async function readTranscript(file) {
       }
     }
   }
-  out.prompts = out.prompts.slice(-MAX_PROMPTS)
+  // Every prompt and reply, from the first: early requirements are the ones most easily lost.
+  // Only tool calls are capped (they feed the activity list, not requirements).
   out.tools = out.tools.slice(-250)
-  out.replies = out.replies.slice(-40)
   return out
 }
 

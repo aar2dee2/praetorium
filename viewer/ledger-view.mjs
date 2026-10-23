@@ -50,7 +50,7 @@ if (!process.env.PRAETORIUM_VIEWER_CHILD) {
 const sessions = new Map() // id -> { state, mtime }
 const titles = new Map() // id -> { title, mtime } from Claude Code's own transcript
 let transcriptOf = new Map() // id -> transcript path
-let prefs = { dark: undefined, showSessions: true, showHeadless: false }
+let prefs = { dark: undefined, showSessions: true, showAudit: true, showHeadless: false }
 try { prefs = { ...prefs, ...JSON.parse(fs.readFileSync(PREFS, 'utf8')) } } catch { /* defaults */ }
 const savePrefs = () => { try { fs.writeFileSync(PREFS, JSON.stringify(prefs)) } catch { /* next time */ } }
 
@@ -59,6 +59,7 @@ let S = EMPTY
 let focus = 'reqs' // sessions | reqs | signals | middle
 let middle = 'activity' // activity | plan | tests | preview | signals
 let showAll = false
+let allActivity = false // A: every event, not only the requirement in view's
 let search = ''
 let reqFilter = 'all'
 const sel = { reqs: 0, signals: 0, activity: 0, plan: 0, tests: 0, preview: 0 }
@@ -247,7 +248,15 @@ function sessionLines(w) {
 
 const shownReqs = () => filterReqs(S.reqs, search, reqFilter)
 const openSignals = () => (S.signals ?? []).filter(x => !x.dismissed).slice().reverse()
-const shownEvents = () => [...S.events].filter(e => showAll || (e.kind !== 'discovery' && e.kind !== 'command')).reverse()
+// The requirement in view: the one selected in the requirements column, wherever focus is.
+const reqInView = () => shownReqs()[sel.reqs]
+// Sessions recorded before events were linked to requirements have no links to filter by.
+const hasLinks = () => S.events.some(e => e.reqIds)
+const forReq = () => (!allActivity && hasLinks() ? reqInView() : undefined)
+const shownEvents = () => {
+  const r = forReq()
+  return [...S.events].filter(e => (!r || e.reqIds?.includes(r.id)) && (showAll || r || (e.kind !== 'discovery' && e.kind !== 'command'))).reverse()
+}
 const testRuns = () => [...S.events].filter(e => e.kind === 'test').reverse()
 const previews = () => [...(S.previews ?? [])].reverse()
 
@@ -281,15 +290,18 @@ function signalLines(w, heading = true) {
 }
 
 function middleLines(w, withSignals) {
-  const tabs = [['activity', `1 Activity ${S.events.length}`], ['plan', `2 Plan ${S.plan?.length ?? 0}`], ['tests', `3 Tests ${testRuns().length}`],
+  const tabs = [['activity', `1 Activity ${shownEvents().length}`], ['plan', `2 Plan ${S.plan?.length ?? 0}`], ['tests', `3 Tests ${testRuns().length}`],
     ['preview', `4 Preview ${S.previews?.length ?? 0}`], ...(withSignals ? [['signals', `5 Signals ${openSignals().length}`]] : [])]
   const lines = [tabs.flatMap(([id, label]) => [seg(` ${label} `, middle === id ? P.text : P.text3, middle === id ? P.surface2 : undefined, middle === id), seg(' ')]), []]
   const isSel = (list, i) => focus === 'middle' && i === sel[list]
   if (middle === 'signals') return [...lines, ...signalLines(w, false)]
   if (middle === 'activity') {
     const evs = shownEvents()
-    lines.push([seg(showAll ? 'everything' : 'key events', P.text3), seg('  v to switch', P.text3)])
-    if (!evs.length) lines.push([seg('No activity yet.', P.text3)])
+    const r = forReq()
+    if (r) lines.push([seg(`for ${r.id}`, P.text2, undefined, true), seg('  A all activity', P.text3)])
+    else if (!hasLinks() && S.events.length) lines.push(...wrap('Recorded before activity was linked to requirements, so this is all of it.', w, P.text3), [seg(showAll ? 'everything' : 'key events', P.text3), seg('  v to switch', P.text3)])
+    else lines.push([seg(`all activity · ${showAll ? 'everything' : 'key events'}`, P.text3), seg(`  ${reqInView() ? `A only ${reqInView().id}  ` : ''}v to switch`, P.text3)])
+    if (!evs.length) lines.push(...wrap(r ? `Nothing linked to ${r.id} yet. Work on it shows here as the agent does it.` : 'No activity yet.', w, P.text3))
     evs.forEach((ev, i) => {
       const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
       const n = S.replies.filter(r => r.eventId === ev.id).length
@@ -334,6 +346,7 @@ function eventDetail(ev, w) {
   const [label, t] = KIND[ev.kind] ?? ['Event', 'muted']
   lines.push([chip(label, t), seg(`  ${hhmm(ev.at)}`, P.text3)], ...wrap(ev.title, w, P.text))
   if (ev.file) lines.push([seg(ev.file, P.text3)])
+  if (ev.reqIds?.length) lines.push([seg(`For ${ev.reqIds.join(', ')}`, P.text3)])
   if (ev.detail) lines.push([], ...wrap(ev.detail, w, P.text2).slice(0, 14))
   const thread = S.replies.filter(r => r.eventId === ev.id)
   if (thread.length) lines.push([])
@@ -343,6 +356,21 @@ function eventDetail(ev, w) {
   }
   lines.push([], [key('c'), seg(' comment  ', P.text3), key('n'), seg(' new requirement  ', P.text3), key('i'), seg(' instruct agent', P.text3)])
   if (ev.kind === 'code' && ev.file) lines.push([...(S.editors[0] ? [key('o'), seg(` diff in ${S.editors[0].name}  `, P.text3)] : []), key('t'), seg(' diff here', P.text3)])
+  return lines
+}
+
+// What was going on when a signal was raised, so it reads on its own.
+function signalContext(sig, w) {
+  const lines = []
+  const ev = S.events.find(e => e.id === sig.eventId)
+  const ids = [...new Set([sig.reqId, ...(ev?.reqIds ?? [])].filter(Boolean))]
+  const part = (label, text, fg, max) => { if (text?.trim()) lines.push([seg(label, P.text3)], ...wrap(text.trim(), w, fg, '  ').slice(0, max), []) }
+  for (const id of ids) { const r = S.reqs.find(x => x.id === id); if (r) part(`Requirement ${r.id}`, r.title, P.text, 3) }
+  const c = sig.context ?? {}
+  part('You had asked', c.ask, P.text2, 5)
+  part(sig.kind === 'finding' || sig.kind === 'conflict' ? 'What the agent did' : ev ? `What it ran (${(KIND[ev.kind] ?? ['Event'])[0].toLowerCase()})` : 'What it ran', c.did ?? ev?.detail ?? ev?.title, P.text2, 6)
+  part(sig.kind === 'finding' || sig.kind === 'conflict' ? 'What the agent said' : 'What came back', c.output, P.text2, 8)
+  if (!sig.context && !ids.length) lines.push(...wrap('Raised before signals kept their context (0.3.6). Enter goes to the event it came from.', w, P.text3), [])
   return lines
 }
 
@@ -370,9 +398,8 @@ function detailLines(w) {
   } else if ((focus === 'signals' || (focus === 'middle' && middle === 'signals')) && sig) {
     const [label, t] = SIGNAL[sig.kind] ?? ['Signal', 'muted']
     lines.push([chip(label, t), seg(`  ${hhmm(sig.at)}${sig.reqId ? `  ${sig.reqId}` : ''}`, P.text3)], ...wrap(sig.text, w, P.text), [])
+    lines.push(...signalContext(sig, w))
     lines.push([key('enter'), seg(' go to the event  ', P.text3), key('n'), seg(' make it a requirement  ', P.text3), key('x'), seg(' dismiss', P.text3)])
-    const ev = S.events.find(e => e.id === sig.eventId)
-    if (ev) lines.push([], ...eventDetail(ev, w))
   } else if (focus === 'middle') {
     const ev = middle === 'activity' ? shownEvents()[sel.activity] : middle === 'tests' ? testRuns()[sel.tests] : undefined
     if (ev) lines.push(...eventDetail(ev, w))
@@ -383,7 +410,7 @@ function detailLines(w) {
       for (const id of st.reqIds) { const r = S.reqs.find(x => x.id === id); if (r) lines.push(...wrap(`${r.id} ${r.title}`, w, P.text2)) }
     }
   }
-  // the audit, always
+  if (!prefs.showAudit) return lines.length ? lines : wrap('Completion audit hidden. C shows it.', w, P.text3)
   const L = S.reqs.filter(r => r.status !== 'deferred')
   const verified = L.filter(isVerified).length
   const gaps = L.filter(r => gapOf(r, S.plan ?? []))
@@ -411,7 +438,7 @@ function layout(W) {
   if (withSessions) { cols.push(['sessions', 28]); rest -= 28 + gutter }
   if (rest >= 170) {
     const wr = Math.floor((rest - gutter * 3) * 0.27), ws = Math.floor((rest - gutter * 3) * 0.21), wm = Math.floor((rest - gutter * 3) * 0.27)
-    cols.push(['reqs', wr], ['signals', ws], ['middle', wm], ['detail', rest - gutter * 3 - wr - ws - wm])
+    cols.push(['reqs', wr], ['middle', wm], ['signals', ws], ['detail', rest - gutter * 3 - wr - ws - wm])
   } else if (rest >= 100) {
     const wr = Math.floor((rest - gutter * 2) * 0.32), wm = Math.floor((rest - gutter * 2) * 0.36)
     cols.push(['reqs', wr], ['middle', wm], ['detail', rest - gutter * 2 - wr - wm])
@@ -453,7 +480,7 @@ function render() {
       ...(compose.mode === 'comment' ? [] : [seg('  '), compose.interrupt ? chip('interrupt first', 'danger') : seg('ctrl-t interrupt first', P.text3)]),
       seg('  › ', P.active), seg(compose.text + '▏', P.text)]
   } else {
-    footer = [seg(flash || 'tab column · ↑↓ move · [ ] session · S sessions · / search · F filter · 1-5 tabs · x resolve/dismiss · l light/dark · h headless · q quit', flash ? P.active : P.text3)]
+    footer = [seg(flash || 'tab column · ↑↓ move · [ ] session · S sessions · C audit · A all activity · / search · F filter · 1-5 tabs · x resolve/dismiss · l light/dark · h headless · q quit', flash ? P.active : P.text3)]
   }
   rows.push({ line: [] }, { line: [seg('─'.repeat(W), P.border)] }, { line: footer })
   out.write('\x1b[H' + rows.map(r => r.raw ?? paint(r.line, W, P.bg)).join('\r\n') + '\x1b[0m')
@@ -589,14 +616,16 @@ function onKey(k) {
     case '\x1b[D': focus = order[(order.indexOf(focus) - 1 + order.length) % order.length] ?? 'reqs'; break
     case '[': return switchSession(-1)
     case ']': return switchSession(1)
-    case '\x1b[A': case 'k': if (focus === 'sessions') return switchSession(-1); if (listOf()) sel[listOf()] = Math.max(0, sel[listOf()] - 1); break
-    case '\x1b[B': case 'j': if (focus === 'sessions') return switchSession(1); if (listOf()) { sel[listOf()]++; clampSel() } break
+    case '\x1b[A': case 'k': if (focus === 'sessions') return switchSession(-1); if (listOf()) sel[listOf()] = Math.max(0, sel[listOf()] - 1); if (focus === 'reqs') sel.activity = 0; break
+    case '\x1b[B': case 'j': if (focus === 'sessions') return switchSession(1); if (listOf()) { sel[listOf()]++; clampSel() } if (focus === 'reqs') sel.activity = 0; break
     case '1': middle = 'activity'; focus = 'middle'; break
     case '2': middle = 'plan'; focus = 'middle'; break
     case '3': middle = 'tests'; focus = 'middle'; break
     case '4': middle = 'preview'; focus = 'middle'; break
     case '5': if (order.includes('signals')) focus = 'signals'; else { middle = 'signals'; focus = 'middle' } break
     case 'S': prefs.showSessions = !prefs.showSessions; savePrefs(); if (focus === 'sessions') focus = 'reqs'; break
+    case 'C': prefs.showAudit = !prefs.showAudit; savePrefs(); say(prefs.showAudit ? 'Completion audit shown' : 'Completion audit hidden · C brings it back'); return
+    case 'A': allActivity = !allActivity; sel.activity = 0; break
     case 'h': prefs.showHeadless = !prefs.showHeadless; savePrefs(); say(prefs.showHeadless ? 'Showing headless (claude -p) sessions' : 'Hiding headless sessions'); return
     case 'l': prefs.dark = !isDark(); savePrefs(); break
     case 'v': showAll = !showAll; sel.activity = 0; break
@@ -611,7 +640,7 @@ function onKey(k) {
       break
     case 'f': if (req && canSend()) compose = { mode: 'refine', text: '', interrupt: false, refines: req.id }; break
     case '\r':
-      if (sig && sig.eventId && S.events.some(e => e.id === sig.eventId)) { middle = 'activity'; showAll = true; focus = 'middle'; sel.activity = shownEvents().findIndex(e => e.id === sig.eventId); break }
+      if (sig && sig.eventId && S.events.some(e => e.id === sig.eventId)) { middle = 'activity'; showAll = true; allActivity = true; focus = 'middle'; sel.activity = shownEvents().findIndex(e => e.id === sig.eventId); break }
       if (focus === 'middle' && middle === 'preview' && previews()[sel.preview]) return openUrl(previews()[sel.preview].url)
       if (ev && canSend()) compose = { mode: 'comment', text: '', interrupt: false, eventId: ev.id }
       break

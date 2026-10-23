@@ -47,6 +47,9 @@ export type Signal = {
   eventId?: string
   reqId?: string
   dismissed?: boolean
+  // What was going on when it happened: your message that started the turn, what the agent
+  // ran or touched, and the first of what came back.
+  context?: { ask?: string; did?: string; output?: string }
 }
 
 export type PlanStep = {
@@ -68,6 +71,8 @@ export type ActivityEvent = {
   file?: string
   diff?: string
   state?: 'running' | 'ok' | 'failed'
+  // The requirements the turn it happened in worked on.
+  reqIds?: string[]
 }
 
 export type ReplyMode = 'comment' | 'requirement' | 'redirect'
@@ -135,6 +140,7 @@ declare module 'claude-code' {
       signals: Signal[]
       plan: PlanStep[]
       drawn: boolean
+      turns: { at: number; ask: string; answer: string }[]
       previews: Preview[]
     }
   }

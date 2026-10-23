@@ -18,10 +18,8 @@ import type {
   Theme,
   View,
 } from '../types'
-import {
-  BACKFILL_SYSTEM, REVIEW_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseReview, parseTagged, reviewPrompt, tagPrompt,
-} from './tagging'
-import type { PastPrompt, Tagged } from './tagging'
+import { REVIEW_SYSTEM, TAG_SYSTEM, buildLedger, judgeStatuses, parseReview, parseTagged, reviewPrompt, tagPrompt, turnsAsConversation } from './tagging'
+import type { Complete, LedgerItem, PastPrompt, Progress, Tagged, Turn } from './tagging'
 import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, planFrom, previewUrls } from './work'
 import type { ReqFilterName } from './work'
 import { RELEASE } from './release'
@@ -63,6 +61,9 @@ const previewsA = atom({ plugin: 'praetorium', key: 'previews' } as const, [] as
 // Whether this session has ever drawn the pane: a headless run (claude -p, the SDK) never does,
 // whatever its environment says, so the window can leave it out.
 const drawnA = atom({ plugin: 'praetorium', key: 'drawn' } as const, false)
+// Every turn's message and reply, so statuses can be re-judged against the whole session.
+const turnsA = atom({ plugin: 'praetorium', key: 'turns' } as const, [] as Turn[])
+const CONSOLIDATE_EVERY = 6
 
 const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
   captured: { label: 'Not started', tone: 'muted' },
@@ -100,6 +101,12 @@ let sessionId = ''
 let project = ''
 let entry = '' // how the session was started: claude-desktop, cli, sdk-cli (headless)…
 let hasEnded = false
+let turnStartedAt = 0
+let turnAsk = '' // the message that started the current turn, for the review
+// The requirements this turn works on: the ones your message touched, the ones the agent reports
+// on and the plan's current step serves. Every event and signal of the turn is linked to them.
+const turnReqs = new Set<string>()
+const linkReqs = (ids: string[]) => { for (const id of ids) if (/^R\d+$/.test(id)) turnReqs.add(id) }
 let tmpRoot = ''
 const stateFile = () => join(plat.data, `state-${sessionId}.json`)
 const inboxFile = () => join(plat.data, `inbox-${sessionId}.jsonl`)
@@ -126,8 +133,15 @@ async function mirror($: $T) {
       read($, reqsA), read($, repliesA), read($, eventsA), read($, turnA), read($, titleA), read($, themeA), read($, viewA),
       read($, signalsA), read($, planA), read($, previewsA), read($, drawnA),
     ])
+    const turns = await read($, turnsA)
+    // Work that finishes after the session has gone (a review still running when you quit) sees
+    // empty state; writing that would wipe the ledger, so an empty ledger never replaces a full one.
+    if (!reqs.length && !events.length) {
+      const onDisk = await $.fs.read(stateFile()).then(t => JSON.parse(t) as { reqs?: unknown[]; events?: unknown[] }).catch(() => undefined)
+      if (onDisk?.reqs?.length || onDisk?.events?.length) return
+    }
     await $.fs.write(stateFile(), JSON.stringify({
-      sessionId, project, title, hasEnded, entry, drawn,
+      sessionId, project, title, hasEnded, entry, drawn, turns: turns.slice(-400),
       reqs, replies, events: events.slice(-200), signals: signals.slice(-100), plan, previews,
       isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: join(plat.data, 'snapshots'), theme, dark: view.dark, at: now(),
       transcriptsAllowed: await transcriptsAllowed($),
@@ -142,6 +156,7 @@ async function save($: $T) {
   if (!storeKey) return
   try {
     const [reqs, replies, events, signals, plan] = await Promise.all([read($, reqsA), read($, repliesA), read($, eventsA), read($, signalsA), read($, planA)])
+    if (!reqs.length && !events.length) return // as in mirror: nothing to keep, and maybe state already gone
     // The store holds 4 MiB in all: 12 sessions of trimmed history fit with room to spare.
     const lean = events.slice(-80).map(ev => (ev.detail && ev.detail.length > 400 ? { ...ev, detail: `${ev.detail.slice(0, 399)}…` } : ev))
     await $.store.set(storeKey, { reqs, replies: replies.slice(-60), events: lean, signals: signals.slice(-40), plan, inboxSeq: await read($, inboxSeqA) })
@@ -153,7 +168,8 @@ async function save($: $T) {
 }
 
 async function pushEvent($: $T, ev: ActivityEvent) {
-  await update($, eventsA, list => [...list, ev].slice(-300))
+  const linked = turnReqs.size && !ev.reqIds ? { ...ev, reqIds: [...turnReqs] } : ev
+  await update($, eventsA, list => [...list, linked].slice(-300))
   await mirror($)
 }
 
@@ -162,27 +178,78 @@ async function patchEvent($: $T, id: string, patch: Partial<ActivityEvent>) {
   await mirror($)
 }
 
-async function addSignal($: $T, kind: SignalKind, text: string, link: { eventId?: string; reqId?: string } = {}) {
-  await update($, signalsA, list => [...list, { id: uid(), kind, at: now(), text, ...link }].slice(-150))
+async function addSignal($: $T, kind: SignalKind, text: string, link: Pick<Signal, 'eventId' | 'reqId' | 'context'> = {}) {
+  const reqId = link.reqId ?? (turnReqs.size === 1 ? [...turnReqs][0] : undefined)
+  await update($, signalsA, list => [...list, { id: uid(), kind, at: now(), text, ...link, reqId }].slice(-150))
   await mirror($)
 }
 
-async function review($: $T, answer: string, eventId: string) {
+// What the agent did in a turn, as short lines for the review.
+const workOf = (events: ActivityEvent[], since: number) => events
+  .filter(ev => ev.at >= since && (ev.kind === 'code' || ev.kind === 'test' || ev.kind === 'command'))
+  .map(ev => `${KIND[ev.kind].label}: ${ev.title}${ev.state === 'failed' ? ' (failed)' : ev.kind === 'test' && ev.state === 'ok' ? ' (passed)' : ''}`)
+
+async function consolidate($: $T) {
+  try {
+    const reqs = await read($, reqsA)
+    const open = reqs.filter(r => !((r.status === 'verified' && !r.needsReverify) || r.status === 'deferred' || r.status === 'revisit'))
+    if (!open.length) return
+    const { prompts, replies } = turnsAsConversation(await read($, turnsA))
+    const items = open.map(asLedgerItem)
+    if (await judgeStatuses(items, prompts, replies, haiku($))) return
+    const progress = items
+      .filter(it => open.find(r => r.id === it.id)?.status !== it.status)
+      .map(it => ({ id: it.id, status: it.status as Progress['status'], why: it.why ?? 'judged from the session so far' }))
+    if (await applyProgress($, progress, 'Judged from the session so far')) await save($)
+  } catch {
+    // the next consolidation tries again
+  }
+}
+
+// Statuses judged by Haiku from the agent's report or the conversation. Verified, deferred and
+// done-for-now are the person's or the evidence's call, so they're never moved this way.
+async function applyProgress($: $T, progress: Progress[], from: string): Promise<number> {
+  let moved = 0
+  await update($, reqsA, (list): Requirement[] => list.map(r => {
+    const p = progress.find(x => x.id === r.id)
+    const settled = (r.status === 'verified' && !r.needsReverify) || r.status === 'deferred' || r.status === 'revisit'
+    if (!p || settled || p.status === r.status) return r
+    moved++
+    return { ...r, status: p.status, evidence: [...r.evidence, { kind: 'note' as const, at: now(), text: `${from}: ${p.why}` }] }
+  }))
+  return moved
+}
+
+// Returns the requirements the turn worked on, as the review judged them.
+async function review($: $T, answer: string, eventId: string, work: string[], ask: string): Promise<string[]> {
   try {
     const reqs = (await read($, reqsA)).filter(r => r.status !== 'deferred')
-    const res = await $.model.complete({ model: HAIKU, system: REVIEW_SYSTEM, prompt: reviewPrompt(reqs, answer), maxTokens: 1200 })
-    if (!res.isAnswered) return
-    const { findings, conflicts: against } = parseReview(res.text)
-    for (const f of findings) await addSignal($, 'finding', f.text, { eventId })
+    const res = await $.model.complete({ model: HAIKU, system: REVIEW_SYSTEM, prompt: reviewPrompt(reqs, answer, work, ask), maxTokens: 2000 })
+    if (!res.isAnswered) return []
+    const { findings, conflicts: against, progress } = parseReview(res.text)
+    await applyProgress($, progress, "Judged from the agent's report")
+    const context = { ask: clip(ask, 600), did: work.slice(-8).join('\n'), output: clip(answer, 800) }
+    for (const f of findings) await addSignal($, 'finding', f.text, { eventId, context })
     for (const c of against) {
       if (!reqs.some(r => r.id === c.id)) continue
       await update($, reqsA, (list): Requirement[] => list.map(r => (r.id === c.id ? { ...r, conflict: { reason: c.reason, at: now(), source: 'agent' } } : r)))
-      await addSignal($, 'conflict', `The agent's work goes against ${c.id}: ${c.reason}`, { eventId, reqId: c.id })
+      await addSignal($, 'conflict', `The agent's work goes against ${c.id}: ${c.reason}`, { eventId, reqId: c.id, context })
     }
     await save($)
+    return [...progress.map(p => p.id), ...against.map(c => c.id)]
   } catch {
     // no review this turn
+    return []
   }
+}
+
+// Links what happened in a turn to the requirements it worked on, once they're all known.
+async function linkTurn($: $T, since: number, until: number, ids: string[]) {
+  if (!ids.length) return
+  const add = (have?: string[]) => [...new Set([...(have ?? []), ...ids])]
+  await update($, eventsA, list => list.map(ev => (ev.at >= since && ev.at <= until ? { ...ev, reqIds: add(ev.reqIds) } : ev)))
+  if (ids.length === 1) await update($, signalsA, list => list.map(x => (x.at >= since && x.at <= until && !x.reqId ? { ...x, reqId: ids[0] } : x)))
+  await mirror($)
 }
 
 // ---------- requirement tagging (Haiku) ----------
@@ -807,26 +874,27 @@ async function readPast($: $T, args: string[]): Promise<PastSession[]> {
   return JSON.parse(r.stdout) as PastSession[]
 }
 
-// One Haiku call turns a whole past conversation into requirements; tool calls become events.
+// Haiku through the session's own client; undefined when it gives no answer.
+const haiku = ($: $T): Complete => async (system, prompt, maxTokens) => {
+  const res = await $.model.complete({ model: HAIKU, system, prompt, maxTokens })
+  return res.isAnswered ? res.text : undefined
+}
+
+const asLedgerItem = (r: Requirement): LedgerItem => ({
+  id: r.id, title: r.title, status: r.status, at: r.at, quote: r.history[0]?.text ?? r.title,
+  refinements: r.history.slice(1).map(h => ({ at: h.at, text: h.text })),
+})
+
+// A whole past conversation, read in order (see buildLedger): requirements with the status the
+// conversation shows; tool calls become events.
 async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]; events: ActivityEvent[]; failed?: string }> {
-  const res = await $.model.complete({ model: HAIKU, system: BACKFILL_SYSTEM, prompt: backfillPrompt(past.prompts), maxTokens: 8000 })
-  // No answer is not "no requirements": say so, and save nothing, so a later import tries again.
-  if (!res.isAnswered) return { reqs: [], events: [], failed: res.reason === 'api-error' ? `the model answered ${res.status ?? 'an error'}` : String(res.reason) }
-  const items = parseBackfill(res.text, past.prompts.length)
-  const reqs: Requirement[] = []
-  const byOwnId = new Map<string, string>()
-  for (const item of items) {
-    const at = past.prompts[item.msg - 1]?.at ?? past.firstAt
-    const target = item.refines ? reqs.find(r => r.id === byOwnId.get(item.refines ?? '')) : undefined
-    if (target) {
-      target.history.push({ at, text: item.quote || item.title, kind: 'refinement', by: 'you' })
-      byOwnId.set(item.id, target.id)
-      continue
-    }
-    const id = `R${reqs.length + 1}`
-    byOwnId.set(item.id, id)
-    reqs.push({ id, title: item.title, status: 'captured', at, history: [{ at, text: item.quote || item.title, kind: 'original', by: 'you' }], evidence: [] })
-  }
+  const built = await buildLedger(past.prompts, past.replies, haiku($))
+  if (built.failed) return { reqs: [], events: [], failed: built.failed }
+  const reqs: Requirement[] = built.items.map(it => ({
+    id: it.id, title: it.title, status: it.status as ReqStatus, at: it.at,
+    history: [{ at: it.at, text: it.quote, kind: 'original', by: 'you' }, ...it.refinements.map(r => ({ at: r.at, text: r.text, kind: 'refinement' as const, by: 'you' as const }))],
+    evidence: it.status === 'captured' ? [] : [{ kind: 'note', at: now(), text: `Judged from the conversation: ${it.why ?? 'when it was read'}` }],
+  }))
   const events: ActivityEvent[] = []
   for (const t of past.tools) {
     const ev = describe(t, Number(t.at) || past.lastAt)
@@ -834,17 +902,22 @@ async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]
     if (ev.state === 'running') ev.state = t.isError ? 'failed' : 'ok'
     events.push(ev)
   }
-  for (const [i, m] of past.replies.entries()) {
+  for (const [i, m] of past.replies.slice(-40).entries()) {
     events.push({ id: `m-${past.sessionId}-${i}`, kind: 'message', at: m.at, title: clip(m.text.split('\n')[0] ?? '', 90), detail: m.text })
   }
   events.sort((a, b) => a.at - b.at)
   return { reqs, events: events.slice(-200) }
 }
 
-async function importSessions($: $T, days: number): Promise<string> {
-  const existing = (await $.fs.list(plat.data).catch(() => []))
-    .map(f => /^state-(.+)\.json$/.exec(f.name)?.[1])
-    .filter((x): x is string => Boolean(x))
+async function importSessions($: $T, days: number, again = false): Promise<string> {
+  const existing: string[] = []
+  for (const f of await $.fs.list(plat.data).catch(() => [])) {
+    const id = /^state-(.+)\.json$/.exec(f.name)?.[1]
+    if (!id) continue
+    // `again` imports already-imported sessions afresh; live sessions are never overwritten.
+    if (again && (await $.fs.read(join(plat.data, f.name)).then(t => (JSON.parse(t) as { imported?: boolean }).imported).catch(() => false))) continue
+    existing.push(id)
+  }
   const past = await readPast($, ['--days', String(days), '--max', '12', '--skip', [...existing, sessionId].join(',')])
   const [theme, view] = await Promise.all([read($, themeA), read($, viewA)])
   let tagged = 0
@@ -917,8 +990,44 @@ async function importCommand($: $T, arg: string): Promise<string> {
     await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
     return 'Praetorium needs your permission to read existing transcripts: answer in the dialog, or run /ledger import allow.'
   }
-  const days = Math.min(30, Math.max(1, Number.parseInt(arg, 10) || 2))
-  return importSessions($, days).catch(err => `Could not import: ${err instanceof Error ? err.message : String(err)}`)
+  const again = /\brefresh\b/.test(arg)
+  const days = Math.min(30, Math.max(1, Number.parseInt(arg.replace(/\D+/g, ' '), 10) || 2))
+  return importSessions($, days, again).catch(err => `Could not import: ${err instanceof Error ? err.message : String(err)}`)
+}
+
+// Re-judges this session's requirements against its whole conversation, read in order.
+async function refreshCommand($: $T): Promise<string> {
+  if (!(await transcriptsAllowed($))) {
+    await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
+    return 'Refreshing reads this session\'s transcript, which needs your permission: answer in the dialog, or run /ledger import allow.'
+  }
+  const reqs = await read($, reqsA)
+  if (!reqs.length) return 'No requirements to refresh yet.'
+  const [past] = await readPast($, ['--session', sessionId])
+  if (!past?.prompts.length) return 'Found no conversation to judge from.'
+  // The whole conversation: asks the ledger is missing are added (existing ids kept), then every
+  // status is judged against everything said after it.
+  const built = await buildLedger(past.prompts, past.replies, haiku($), { seed: reqs.map(asLedgerItem) })
+  if (built.failed) return `Could not refresh: ${built.failed}. Nothing was changed.`
+  const known = new Set(reqs.map(r => r.id))
+  const added: Requirement[] = built.items.filter(it => !known.has(it.id)).map(it => ({
+    id: it.id, title: it.title, status: it.status as ReqStatus, at: it.at,
+    history: [{ at: it.at, text: it.quote, kind: 'original' as const, by: 'you' as const }],
+    evidence: it.status === 'captured' ? [] : [{ kind: 'note' as const, at: now(), text: `Judged from the conversation: ${it.why ?? ''}` }],
+  }))
+  const progress: Progress[] = built.items
+    .filter(it => known.has(it.id) && reqs.find(r => r.id === it.id)?.status !== it.status)
+    .map(it => ({ id: it.id, status: it.status as Progress['status'], why: it.why ?? 'judged from the conversation' }))
+  const moved = await applyProgress($, progress, 'Judged from the conversation')
+  if (added.length) await update($, reqsA, list => [...list, ...added.filter(a => !list.some(r => r.id === a.id))])
+  await save($)
+  const parts = [
+    added.length ? `added ${added.length} requirement${added.length === 1 ? '' : 's'} the ledger had missed` : '',
+    moved ? `corrected ${moved} status${moved === 1 ? '' : 'es'}` : '',
+  ].filter(Boolean)
+  return parts.length
+    ? `Read this session's whole conversation: ${parts.join(' and ')}. Verified still needs a passing check or your acceptance (a).`
+    : 'Read this session\'s whole conversation: the ledger already matches it.'
 }
 
 // ---------- the agent's ledger tool ----------
@@ -963,6 +1072,7 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
   const reqs = await read($, reqsA)
   const req = reqs.find(r => r.id === s('id'))
   if (!req) return `No requirement ${s('id')}. Known: ${reqs.map(r => r.id).join(', ') || 'none'}.`
+  linkReqs([req.id])
   let status = (s('status') || req.status) as ReqStatus
   let reply = `${req.id} → ${STATUS[status].label}.`
   const evidence = [...req.evidence]
@@ -1041,7 +1151,7 @@ export const register: Register = on => {
       // Nothing in session state (a fresh process, or a reload that lost it): take over this
       // session's ledger file if it has requirements: one /ledger import wrote, one an earlier
       // load mirrored, or one from 0.1, which kept it in /tmp/claude-ledger.
-      type Kept = { reqs?: Requirement[]; events?: ActivityEvent[]; replies?: Reply[]; title?: string; signals?: Signal[]; plan?: PlanStep[] }
+      type Kept = { reqs?: Requirement[]; events?: ActivityEvent[]; replies?: Reply[]; title?: string; signals?: Signal[]; plan?: PlanStep[]; turns?: Turn[] }
       let kept: Kept | undefined
       // Where 0.2 kept it (the temp folder) and 0.1 (/tmp/claude-ledger), too.
       for (const file of [stateFile(), join(plat.tmp, `state-${sessionId}.json`), `/tmp/claude-ledger/state-${sessionId}.json`]) {
@@ -1059,6 +1169,7 @@ export const register: Register = on => {
         if (kept.title && !(await read($, titleA))) await update($, titleA, () => kept.title ?? '')
         if (kept.signals?.length) await update($, signalsA, list => (list.length ? list : kept.signals ?? []))
         if (kept.plan?.length) await update($, planA, list => (list.length ? list : kept.plan ?? []))
+        if (kept.turns?.length) await update($, turnsA, list => (list.length ? list : kept.turns ?? []))
         await save($)
       } else {
         $.clock.after(0, () => void backfillSelf($))
@@ -1073,7 +1184,7 @@ export const register: Register = on => {
     await mirror($)
     // A session started without tools refuses this; the ledger still works without it.
     await $.tool.register({ name: 'ledger', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false }).catch(() => undefined)
-    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | install | theme … | import [days | allow | revoke] | wide | narrow]' })
+    await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | install | refresh | theme … | import [days | refresh | allow | revoke] | wide | narrow]' })
     void openPane($)
     return next(e)
   })
@@ -1085,6 +1196,7 @@ export const register: Register = on => {
     if (arg === 'install') return { text: await install($).catch(err => `Install failed: ${err instanceof Error ? err.message : String(err)}`) }
     if (arg === 'theme' || arg.startsWith('theme ')) return { text: await themeCommand($, raw.slice(5).trim()) }
     if (arg === 'import' || arg.startsWith('import ')) return { text: await importCommand($, arg.slice(6).trim()) }
+    if (arg === 'refresh') return { text: await refreshCommand($).catch(err => `Could not refresh: ${err instanceof Error ? err.message : String(err)}`) }
     if (arg === 'wide' || arg === 'narrow') await $.store.set('width', arg)
     const width = await openPane($)
     return { text: `Ledger opened (${width}). /ledger window opens it in your terminal; /ledger theme changes the colours; /ledger wide or /ledger narrow resizes this pane; dragging the pane edge also works.` }
@@ -1095,6 +1207,7 @@ export const register: Register = on => {
     const context = [...(e.context ?? [])]
     if (!(await read($, titleA))) await update($, titleA, () => clip(e.text.replace(/\s+/g, ' ').trim(), 70))
     const touched = await capture($, e.text)
+    linkReqs(touched.map(t => /^R\d+/.exec(t)?.[0] ?? ''))
     if (touched.length) {
       context.push(`[Ledger] Captured from this message:\n${touched.join('\n')}\nReport progress with the ${TOOL} tool.`)
     }
@@ -1106,6 +1219,7 @@ export const register: Register = on => {
       const reqs = await read($, reqsA)
       context.push(`[Ledger] What the user sent from the ledger while you were idle:\n${queued.map(r => (r.reqId ? `${r.reqId}: ${reqs.find(x => x.id === r.reqId)?.title ?? r.text}` : `Instruction: ${r.text}`)).join('\n')}`)
       await update($, repliesA, list => list.map(r => (r.delivery === 'queued' ? { ...r, delivery: 'received' as const } : r)))
+      linkReqs(queued.map(r => r.reqId ?? ''))
     }
     await save($)
     return context.length ? next({ ...e, context }) : next(e)
@@ -1130,11 +1244,13 @@ export const register: Register = on => {
       const tool = String(e.tool)
       if (ev.state === 'running') await patchEvent($, ev.id, { state: ran.deny !== undefined || ran.isError === true ? 'failed' : 'ok' })
       // Failed or refused calls are signals: easy to miss in the chat, often worth acting on.
-      if (ran.deny !== undefined) await addSignal($, 'blocked', failureText(tool, ran.deny), { eventId: ev.id })
-      else if (ran.isError === true && ev.kind !== 'discovery') await addSignal($, 'failed', failureText(tool, ran.text ?? ''), { eventId: ev.id })
+      const context = (output: string) => ({ ask: clip(turnAsk, 600), did: clip(ev.detail ?? ev.file ?? ev.title, 600), output: clip(output.trim(), 800) })
+      if (ran.deny !== undefined) await addSignal($, 'blocked', failureText(tool, ran.deny), { eventId: ev.id, context: context(ran.deny) })
+      else if (ran.isError === true && ev.kind !== 'discovery') await addSignal($, 'failed', failureText(tool, ran.text ?? ''), { eventId: ev.id, context: context(ran.text ?? '') })
       if (PLAN_TOOLS.has(tool)) {
         const steps = planFrom(e as unknown as Record<string, unknown>, await read($, reqsA))
         if (steps) {
+          linkReqs(steps.filter(st => st.status === 'in_progress').flatMap(st => st.reqIds))
           await update($, planA, () => steps)
           await mirror($)
         }
@@ -1160,6 +1276,8 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     if (!e.agentId) {
+      turnStartedAt = now()
+      turnAsk = e.text
       await update($, turnA, () => e.turnId)
       await mirror($)
     }
@@ -1174,9 +1292,22 @@ export const register: Register = on => {
         await pushEvent($, { id: `m-${e.turnId}`, kind: 'message', at: now(), title: clip(e.answer.split('\n')[0] ?? '', 90), detail: clip(e.answer, 2000) })
         // One Haiku call per turn: what the agent found that's worth acting on, and whether
         // it went against a requirement. Short answers have neither.
-        if (e.answer.length > 300) $.clock.after(0, () => void review($, e.answer, `m-${e.turnId}`))
+        const work = workOf(await read($, eventsA), turnStartedAt)
+        // Every turn: the review is given every requirement, this turn's work and the reply.
+        const ask = turnAsk
+        const since = turnStartedAt
+        const worked = [...turnReqs]
+        const until = now()
+        const turns = await update($, turnsA, list => [...list, { at: turnStartedAt, ask: clip(ask, 1500), answer: clip(e.answer, 3000) }].slice(-400))
+        $.clock.after(0, () => void review($, e.answer, `m-${e.turnId}`, work, ask).then(async judged => {
+          await linkTurn($, since, until, [...new Set([...worked, ...judged])])
+          // A turn's review sees only that turn; work often finishes in a later one. So every few
+          // turns, every open requirement is re-judged against the whole session so far.
+          if (turns.length % CONSOLIDATE_EVERY === 0) return consolidate($)
+        }))
       }
       await update($, repliesA, list => list.map(r => (r.delivery === 'received' ? { ...r, delivery: 'acted' as const } : r)))
+      turnReqs.clear()
       await save($)
     }
     return next(e)
@@ -1339,6 +1470,10 @@ export const register: Register = on => {
               {sg.reqId && <Text color={p.text3}>{sg.reqId}</Text>}
             </Box>
             <Text color={p.text} wrap="wrap">{sg.text}</Text>
+            {sg.reqId && reqs.some(r => r.id === sg.reqId) && <Text color={p.text2} wrap="wrap">{sg.reqId}: {reqs.find(r => r.id === sg.reqId)?.title}</Text>}
+            {sg.context?.ask && <Text color={p.text3} wrap="wrap">You had asked: {clip(sg.context.ask, 240)}</Text>}
+            {sg.context?.did && <Text color={p.text3} wrap="wrap">{sg.kind === 'finding' || sg.kind === 'conflict' ? 'Agent did' : 'Ran'}: {clip(sg.context.did, 200)}</Text>}
+            {sg.context?.output && <Text color={p.text3} wrap="wrap">{sg.kind === 'finding' || sg.kind === 'conflict' ? 'Agent said' : 'Came back'}: {clip(sg.context.output, 300)}</Text>}
             <Box flexDirection="row" gap={1}>
               {sg.eventId && events.some(x => x.id === sg.eventId) && (
                 <Button key={`sgr-${sg.id}`} label="Reply" plain onPress={() => setView({ tab: 'activity', selectedEvent: sg.eventId })} />
@@ -1407,7 +1542,10 @@ export const register: Register = on => {
     )
 
     // ----- activity -----
+    // An open requirement narrows the activity to its own (once events carry links).
+    const forReq = events.some(ev => ev.reqIds) ? view.selectedReq : undefined
     const shown = events.filter(ev => {
+      if (forReq && !ev.reqIds?.includes(forReq)) return false
       const f: Filter = view.filter
       if (f === 'all') return true
       if (f === 'code') return ev.kind === 'code'
@@ -1468,6 +1606,12 @@ export const register: Register = on => {
 
     const activityTab = (
       <Box flexDirection="column">
+        {forReq && (
+          <Box flexDirection="row" gap={1}>
+            <Text color={p.text2} bold>For {forReq}</Text>
+            <Button key="act-all" label="All activity" plain dimColor onPress={() => setView({ selectedReq: undefined })} />
+          </Box>
+        )}
         <Select
           key="filter"
           label="Show"
@@ -1558,8 +1702,8 @@ export const register: Register = on => {
           </Box>
           <Box flexDirection="row" gap={1}>
             {column('col-reqs', side, `Requirements (${reqs.length})`, reqsTab)}
+            {column('col-activity', inner - side * 3 - 3, `Activity (${shown.length})`, activityTab)}
             {column('col-signals', side, `Signals (${openSignals.length})`, signalsTab)}
-            {column('col-activity', inner - side * 3 - 3, `Activity (${events.length})`, activityTab)}
             {column('col-audit', side, 'Completion audit', <Box flexDirection="column">{auditTab}{planTab}</Box>)}
           </Box>
         </Box>

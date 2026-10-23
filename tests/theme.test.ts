@@ -34,12 +34,34 @@ describe('themes', () => {
   })
 })
 
-import { parseBackfill } from '../hooks/tagging'
+import { buildLedger, parseChunk } from '../hooks/tagging'
 
 describe('backfill replies', () => {
   test('a reply cut off mid-list keeps the items that arrived whole', async () => {
-    const cut = '{"items":[{"id":"R1","title":"Show sessions","quote":"q","msg":1,"refines":null},{"id":"R2","title":"Use iTerm","quote":"q","msg":2,"refines":"R1"},{"id":"R3","title":"Half'
-    const items = parseBackfill(cut, 3)
-    expect(items.map(i => i.id)).toEqual(['R1', 'R2'])
+    const cut = '{"items":[{"title":"Show sessions","quote":"q","msg":1,"refines":null,"status":"captured"},{"title":"Use iTerm","quote":"q","msg":2,"refines":"R1"},{"title":"Half'
+    expect(parseChunk(cut).items.map(i => i.title)).toEqual(['Show sessions', 'Use iTerm'])
+  })
+  test('a long conversation is read whole: every chunk gets every requirement, statuses see every reply', async () => {
+    const prompts = Array.from({ length: 20 }, (_, i) => ({ at: i * 10, text: i === 0 ? 'build the ledger' : `message ${i + 1}`, lastReply: '' }))
+    const replies = [{ at: 5, text: 'started the ledger' }, { at: 195, text: 'the ledger is done and committed' }]
+    const seen: { system: string; prompt: string }[] = []
+    const built = await buildLedger(prompts, replies, async (system, prompt) => {
+      seen.push({ system, prompt })
+      if (system.includes('judge how far')) return '{"progress":[{"id":"R1","status":"implemented","why":"message 20: done and committed"}]}'
+      if (seen.length === 1) return '{"items":[{"title":"Build the ledger","quote":"build the ledger","msg":1,"refines":null}]}'
+      return '{"items":[]}'
+    })
+    const asks = seen.filter(x => x.system.includes('a few at a time'))
+    expect(asks.length).toBe(3) // 20 messages in chunks of 8
+    expect(asks[2]!.prompt).toContain('R1: Build the ledger') // later chunks are given the early requirement
+    const status = seen.find(x => x.system.includes('judge how far'))!
+    expect(status.prompt).toContain('the ledger is done and committed') // the late evidence is fed to the status pass
+    expect(built.items.map(i => `${i.id}:${i.status}`)).toEqual(['R1:implemented'])
+  })
+  test('a call with no answer fails the whole build rather than half-read it', async () => {
+    const prompts = Array.from({ length: 12 }, (_, i) => ({ at: i, text: `m${i}`, lastReply: '' }))
+    let n = 0
+    const built = await buildLedger(prompts, [], async () => (n++ ? undefined : '{"items":[]}'))
+    expect(built.failed).toContain('messages 9-12')
   })
 })
