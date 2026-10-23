@@ -125,7 +125,7 @@ Titled **Praetorium - Your Claude Code Dashboard**. Sessions are listed by proje
 | `a` · `d` | Accept a requirement as verified · defer it |
 | `g` | Ask the agent to close every open gap |
 | `v` | All events, or key events only |
-| `l` · `h` | Light or dark · show headless (`claude -p`) sessions |
+| `l` · `h` | Light or dark · show headless sessions (`claude -p` and SDK runs, which never draw the pane) |
 | `q` | Quit |
 
 Colours are full 24-bit where the terminal supports it, and the nearest of 256 elsewhere (Apple Terminal, older consoles).

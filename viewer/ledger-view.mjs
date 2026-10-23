@@ -76,7 +76,8 @@ const hhmm = t => { const d = new Date(t); return `${String(d.getHours()).padSta
 const inboxFile = () => path.join(dir, `inbox-${cur}.jsonl`)
 const aliveAt = id => { try { return fs.statSync(path.join(dir, `alive-${id}`)).mtimeMs } catch { return 0 } }
 const isLive = st => !st.imported && !st.hasEnded && now() - aliveAt(st.sessionId) < LIVE_MS
-const isHeadless = st => /^sdk/.test(st.entry ?? '')
+// Headless: started by the SDK, or never drew the pane (claude -p run from inside another session inherits its entry).
+const isHeadless = st => /^sdk/.test(st.entry ?? '') || st.drawn === false
 // Sessions without a project folder (named scratch-…, or imported by 0.2) sit under "This computer", as in the app.
 const projectOf = st => (/^scratch-\d{4}-\d{2}-\d{2}-/.test(st.project ?? '') ? 'This computer' : st.project || 'Other')
 const nameOf = st => titles.get(st.sessionId)?.title || st.title || 'No prompt yet'

@@ -134,6 +134,7 @@ declare module 'claude-code' {
       theme: Theme
       signals: Signal[]
       plan: PlanStep[]
+      drawn: boolean
       previews: Preview[]
     }
   }

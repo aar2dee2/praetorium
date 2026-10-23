@@ -60,6 +60,9 @@ const themeA = atom({ plugin: 'praetorium', key: 'theme' } as const, DEFAULT_THE
 const signalsA = atom({ plugin: 'praetorium', key: 'signals' } as const, [] as Signal[])
 const planA = atom({ plugin: 'praetorium', key: 'plan' } as const, [] as PlanStep[])
 const previewsA = atom({ plugin: 'praetorium', key: 'previews' } as const, [] as Preview[])
+// Whether this session has ever drawn the pane: a headless run (claude -p, the SDK) never does,
+// whatever its environment says, so the window can leave it out.
+const drawnA = atom({ plugin: 'praetorium', key: 'drawn' } as const, false)
 
 const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
   captured: { label: 'Not started', tone: 'muted' },
@@ -119,12 +122,12 @@ const isDone = (r: Requirement) => (r.status === 'verified' && !r.needsReverify)
 async function mirror($: $T) {
   if (!sessionId) return
   try {
-    const [reqs, replies, events, turnId, title, theme, view, signals, plan, previews] = await Promise.all([
+    const [reqs, replies, events, turnId, title, theme, view, signals, plan, previews, drawn] = await Promise.all([
       read($, reqsA), read($, repliesA), read($, eventsA), read($, turnA), read($, titleA), read($, themeA), read($, viewA),
-      read($, signalsA), read($, planA), read($, previewsA),
+      read($, signalsA), read($, planA), read($, previewsA), read($, drawnA),
     ])
     await $.fs.write(stateFile(), JSON.stringify({
-      sessionId, project, title, hasEnded, entry,
+      sessionId, project, title, hasEnded, entry, drawn,
       reqs, replies, events: events.slice(-200), signals: signals.slice(-100), plan, previews,
       isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: join(plat.data, 'snapshots'), theme, dark: view.dark, at: now(),
       transcriptsAllowed: await transcriptsAllowed($),
@@ -1217,6 +1220,8 @@ export const register: Register = on => {
       return <Text>Open the ledger on desktop.</Text>
     }
     const { Box, Text, Button, Input, Select, Link } = $.ui.resolve(e)
+    // A drawing can't write state, so the first one records itself just after.
+    if (!(await read($, drawnA))) $.clock.after(0, () => void update($, drawnA, () => true).then(() => mirror($)).catch(() => undefined))
     const [reqs, events, replies, view, signals, plan, previews] = await Promise.all([
       read($, reqsA), read($, eventsA), read($, repliesA), read($, viewA), read($, signalsA), read($, planA), read($, previewsA),
     ])
