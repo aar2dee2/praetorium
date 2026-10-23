@@ -52,6 +52,19 @@ async function tagging() {
     ['What does the ledger tool cost in tokens?', t => t.length === 0, 'a question asking only for information is skipped'],
     ['Please preserve the existing tag colours. Reuse the current classes rather than introducing new ones.', t => t.length >= 1 && /colou?r|class/i.test(t.join(' ')), 'a correction is tagged'],
   ]
+  // Refinement and conflict links, judged on the items rather than the titles.
+  const existing = [{ id: 'R5', title: 'Use Telborg brand colours from the telborg_news repo' }, { id: 'R12', title: 'Install by pasting a few lines, like the gstack installer' },
+    { id: 'R15', title: 'Support Windows and Mac terminal apps' }, { id: 'R25', title: 'Add search and filters for requirements' }]
+  const links = [
+    ['the interface goes between light and dark mode as I toggle sessions', items => items.length >= 1 && items.every(i => !i.refines), 'a new ask about the same screen is not a refinement of R5'],
+    ['can we have a setup without node - users might not have node installed', items => items.length >= 1 && items.every(i => !i.refines), 'a new ask is not a refinement of R12 or R15'],
+    ['use the lime from the telborg site for verified, not the darker olive', items => items.some(i => i.refines === 'R5'), 'a real correction refines R5'],
+    ['actually, drop the search box from the requirements list, filters are enough', items => items.some(i => i.conflicts === 'R25'), 'a contradiction is flagged as a conflict with R25'],
+  ]
+  for (const [message, ok, label] of links) {
+    const items = parseTagged(haiku(TAG_SYSTEM, tagPrompt(existing, message)))
+    result(ok(items), label, items.map(i => `${i.title}${i.refines ? ` (refines ${i.refines})` : ''}${i.conflicts ? ` (conflicts ${i.conflicts})` : ''}`).join(' | ') || '(none)')
+  }
   for (const [message, ok, label, existing = [], lastReply = ''] of cases) {
     const titles = parseTagged(haiku(TAG_SYSTEM, tagPrompt(existing, message, lastReply))).map(i => i.title)
     result(ok(titles), label, `${titles.length} tagged: ${titles.join(' | ') || '(none)'}`)
