@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1783 606" width="100%" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<title>Praetorium - Your Claude Code Dashboard</title>
+<rect width="1783" height="606" rx="10" fill="#0d0f12"/>
+<text x="30.0" y="26.5" fill="#e6e8eb" font-weight="700" xml:space="preserve"> Praetorium - Your Claude Code Dashboard </text>
+<text x="382.6" y="26.5" fill="#a0a6b0" xml:space="preserve"> acme-web · Improve search results UI</text>
+<text x="710.6" y="26.5" fill="#818cf8" xml:space="preserve">● working</text>
+<text x="784.4" y="26.5" fill="#6b7280" xml:space="preserve">   6 requirements · </text>
+<text x="948.4" y="26.5" fill="#34d399" xml:space="preserve">1 verified                                                                                          </text>
+<rect x="1005.8" y="48" width="114.8" height="17" fill="#1c2027"/>
+<rect x="1432.2" y="48" width="82.0" height="17" fill="#18312e"/>
+<text x="30.0" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">SESSIONS  4</text>
+<text x="284.2" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">REQUIREMENTS  6</text>
+<text x="407.2" y="60.5" fill="#6b7280" xml:space="preserve">  All                             </text>
+<text x="686.0" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">SIGNALS  3</text>
+<text x="768.0" y="60.5" fill="#6b7280" xml:space="preserve">  failed · blocked · foun…   </text>
+<text x="1005.8" y="60.5" fill="#e6e8eb" font-weight="700" xml:space="preserve"> 1 Activity 8 </text>
+<text x="1128.8" y="60.5" fill="#6b7280" xml:space="preserve"> 2 Plan 4 </text>
+<text x="1219.0" y="60.5" fill="#6b7280" xml:space="preserve"> 3 Tests 2 </text>
+<text x="1317.4" y="60.5" fill="#6b7280" xml:space="preserve"> 4 Prev…   R1 </text>
+<text x="1432.2" y="60.5" fill="#34d399" xml:space="preserve"> Verified                                </text>
+<text x="1407.6" y="77.5" fill="#e6e8eb" xml:space="preserve">Show title, source and date on each result  </text>
+<rect x="284.2" y="82" width="41.0" height="17" fill="#1c2027"/>
+<rect x="325.2" y="82" width="82.0" height="17" fill="#18312e"/>
+<rect x="407.2" y="82" width="254.2" height="17" fill="#1c2027"/>
+<rect x="751.6" y="82" width="57.4" height="17" fill="#342f1d"/>
+<text x="30.0" y="94.5" fill="#6b7280" xml:space="preserve">acme-web                       </text>
+<text x="284.2" y="94.5" fill="#818cf8" xml:space="preserve">› </text>
+<text x="300.6" y="94.5" fill="#6b7280" xml:space="preserve">R1 </text>
+<text x="325.2" y="94.5" fill="#34d399" xml:space="preserve"> Verified                                   </text>
+<text x="702.4" y="94.5" fill="#6b7280" xml:space="preserve">10:52 </text>
+<text x="751.6" y="94.5" fill="#fbbf24" xml:space="preserve"> Found                         </text>
+<text x="1005.8" y="94.5" fill="#6b7280" xml:space="preserve">key events  v to switch                                                                      </text>
+<rect x="30.0" y="99" width="229.6" height="17" fill="#1c2027"/>
+<rect x="284.2" y="99" width="377.2" height="17" fill="#1c2027"/>
+<text x="30.0" y="111.5" fill="#818cf8" xml:space="preserve">● </text>
+<text x="46.4" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Improve search results UI</text>
+<text x="317.0" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Show title, source and date on each result</text>
+<text x="661.4" y="111.5" fill="#e6e8eb" xml:space="preserve">       The search API returns dates in    </text>
+<text x="1022.2" y="111.5" fill="#6b7280" xml:space="preserve">11:02 </text>
+<text x="1071.4" y="111.5" fill="#818cf8" xml:space="preserve">Code change </text>
+<text x="1169.8" y="111.5" fill="#e6e8eb" xml:space="preserve">Edited highlight.ts</text>
+<text x="1325.6" y="111.5" fill="#818cf8" xml:space="preserve">  runn…   </text>
+<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">10:14 Asked                                 </text>
+<rect x="30.0" y="116" width="229.6" height="17" fill="#1c2027"/>
+<rect x="325.2" y="116" width="90.2" height="17" fill="#342f1d"/>
+<rect x="423.6" y="116" width="82.0" height="17" fill="#342428"/>
+<text x="46.4" y="128.5" fill="#6b7280" xml:space="preserve">1/6 verified</text>
+<text x="144.8" y="128.5" fill="#fbbf24" xml:space="preserve"> · 3 signals     </text>
+<text x="300.6" y="128.5" fill="#6b7280" xml:space="preserve">R2 </text>
+<text x="325.2" y="128.5" fill="#fbbf24" xml:space="preserve"> Re-verify </text>
+<text x="423.6" y="128.5" fill="#f87171" xml:space="preserve"> Conflict                       </text>
+<text x="686.0" y="128.5" fill="#e6e8eb" xml:space="preserve">    UTC, so results near midnight      </text>
+<text x="1022.2" y="128.5" fill="#6b7280" xml:space="preserve">10:57 </text>
+<text x="1071.4" y="128.5" fill="#fbbf24" xml:space="preserve">Test </text>
+<text x="1112.4" y="128.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result           </text>
+<text x="1407.6" y="128.5" fill="#a0a6b0" xml:space="preserve">  “Show title, source, date”                </text>
+<text x="30.0" y="145.5" fill="#34d399" xml:space="preserve">○ </text>
+<text x="46.4" y="145.5" fill="#e6e8eb" xml:space="preserve">Fix newsletter unsubscribe       Keep the existing tag colours                    show the wrong day.                </text>
+<text x="1022.2" y="145.5" fill="#6b7280" xml:space="preserve">10:51 </text>
+<text x="1071.4" y="145.5" fill="#818cf8" xml:space="preserve">Code change </text>
+<text x="1169.8" y="145.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx                                                  </text>
+<rect x="325.2" y="150" width="164.0" height="17" fill="#342f1d"/>
+<rect x="751.6" y="150" width="65.6" height="17" fill="#342428"/>
+<text x="30.0" y="162.5" fill="#e6e8eb" xml:space="preserve">  bug                          </text>
+<text x="300.6" y="162.5" fill="#6b7280" xml:space="preserve">R3 </text>
+<text x="325.2" y="162.5" fill="#fbbf24" xml:space="preserve"> Done, not verified                         </text>
+<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">10:44 </text>
+<text x="751.6" y="162.5" fill="#f87171" xml:space="preserve"> Failed                        </text>
+<text x="1022.2" y="162.5" fill="#6b7280" xml:space="preserve">10:44 </text>
+<text x="1071.4" y="162.5" fill="#fbbf24" xml:space="preserve">Test </text>
+<text x="1112.4" y="162.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result</text>
+<text x="1317.4" y="162.5" fill="#f87171" xml:space="preserve">  failed   </text>
+<text x="1407.6" y="162.5" fill="#6b7280" xml:space="preserve">In the plan                                 </text>
+<text x="46.4" y="179.5" fill="#34d399" xml:space="preserve">1/1 verified                 </text>
+<text x="284.2" y="179.5" fill="#e6e8eb" xml:space="preserve">    Show a one or two line summary                   Bash: 2 tests failed in            </text>
+<text x="1022.2" y="179.5" fill="#6b7280" xml:space="preserve">10:36 </text>
+<text x="1071.4" y="179.5" fill="#818cf8" xml:space="preserve">Agent </text>
+<text x="1120.6" y="179.5" fill="#e6e8eb" xml:space="preserve">I've replaced the tag styling w…   </text>
+<text x="1407.6" y="179.5" fill="#a0a6b0" xml:space="preserve">  ✓ [R1] Title, source and date             </text>
+<rect x="325.2" y="184" width="106.6" height="17" fill="#23273b"/>
+<text x="300.6" y="196.5" fill="#6b7280" xml:space="preserve">R4 </text>
+<text x="325.2" y="196.5" fill="#818cf8" xml:space="preserve"> In progress                                </text>
+<text x="686.0" y="196.5" fill="#e6e8eb" xml:space="preserve">    search-result.test.tsx (tag        </text>
+<text x="1022.2" y="196.5" fill="#6b7280" xml:space="preserve">10:35 </text>
+<text x="1071.4" y="196.5" fill="#818cf8" xml:space="preserve">Code change </text>
+<text x="1169.8" y="196.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx                                                  </text>
+<text x="30.0" y="213.5" fill="#6b7280" xml:space="preserve">acme-api                       </text>
+<text x="284.2" y="213.5" fill="#e6e8eb" xml:space="preserve">    Highlight matched keywords                       colour snapshot).                  </text>
+<text x="1022.2" y="213.5" fill="#6b7280" xml:space="preserve">10:20 </text>
+<text x="1071.4" y="213.5" fill="#818cf8" xml:space="preserve">Plan </text>
+<text x="1112.4" y="213.5" fill="#e6e8eb" xml:space="preserve">Plan updated                        </text>
+<text x="1407.6" y="213.5" fill="#34d399" xml:space="preserve">Passed: npm test -- search-result           </text>
+<rect x="325.2" y="218" width="106.6" height="17" fill="#1c2027"/>
+<rect x="751.6" y="218" width="82.0" height="17" fill="#342428"/>
+<text x="30.0" y="230.5" fill="#34d399" xml:space="preserve">○ </text>
+<text x="46.4" y="230.5" fill="#e6e8eb" xml:space="preserve">Add country filter to news   </text>
+<text x="300.6" y="230.5" fill="#6b7280" xml:space="preserve">R5  Not started                                </text>
+<text x="702.4" y="230.5" fill="#6b7280" xml:space="preserve">10:36 </text>
+<text x="751.6" y="230.5" fill="#f87171" xml:space="preserve"> Conflict </text>
+<text x="833.6" y="230.5" fill="#6b7280" xml:space="preserve"> R2                                                                                                               </text>
+<text x="30.0" y="247.5" fill="#e6e8eb" xml:space="preserve">  page                             Make the layout more compact                     The agent's work goes against                                                       </text>
+<text x="1407.6" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">a</text>
+<text x="1415.8" y="247.5" fill="#6b7280" xml:space="preserve"> accept  </text>
+<text x="1489.6" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">d</text>
+<text x="1497.8" y="247.5" fill="#6b7280" xml:space="preserve"> defer  </text>
+<text x="1563.4" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">f</text>
+<text x="1571.6" y="247.5" fill="#6b7280" xml:space="preserve"> refine                 </text>
+<rect x="325.2" y="252" width="106.6" height="17" fill="#1c2027"/>
+<text x="46.4" y="264.5" fill="#6b7280" xml:space="preserve">0/1 verified                 </text>
+<text x="300.6" y="264.5" fill="#6b7280" xml:space="preserve">R6  Not started                                </text>
+<text x="686.0" y="264.5" fill="#e6e8eb" xml:space="preserve">    R2: it replaced the tag classes                                                                                                 </text>
+<text x="30.0" y="281.5" fill="#e6e8eb" xml:space="preserve">                                   Make sure it works on mobile                     with new ones.                                                                      </text>
+<text x="1407.6" y="281.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">COMPLETION AUDIT</text>
+<text x="30.0" y="298.5" fill="#6b7280" xml:space="preserve">This computer                                                                                                                                                           </text>
+<text x="1407.6" y="298.5" fill="#e6e8eb" xml:space="preserve">Accounted 4/6   </text>
+<text x="1538.8" y="298.5" fill="#34d399" xml:space="preserve">Verified 1/6                </text>
+<text x="30.0" y="315.5" fill="#6b7280" xml:space="preserve">◌ Improve mobile layout                                                                                                                                                 The agent saying it's done doesn't count:   </text>
+<text x="46.4" y="332.5" fill="#6b7280" xml:space="preserve">0/1 verified · imported                                                                                                                                               verified needs a passing check or your      </text>
+<text x="30.0" y="349.5" fill="#6b7280" xml:space="preserve">                                                                                                                                                                        acceptance.                                 </text>
+<text x="1407.6" y="366.5" fill="#f87171" xml:space="preserve">R2 Conflicting instruction: the agent       </text>
+<text x="30.0" y="383.5" fill="#f87171" xml:space="preserve">                                                                                                                                                                        replaced the tag classes with new ones      </text>
+<text x="1407.6" y="400.5" fill="#fbbf24" xml:space="preserve">R3 Agent says done; no passing check yet    </text>
+<text x="30.0" y="417.5" fill="#fbbf24" xml:space="preserve">                                                                                                                                                                        R4 Still in progress                        </text>
+<text x="30.0" y="434.5" fill="#fbbf24" xml:space="preserve">                                                                                                                                                                        R5 Not in the agent's plan                  </text>
+<text x="30.0" y="451.5" fill="#fbbf24" xml:space="preserve">                                                                                                                                                                        R6 Not in the agent's plan                  </text>
+<text x="1407.6" y="468.5" fill="#818cf8" font-weight="700" xml:space="preserve">g</text>
+<text x="1415.8" y="468.5" fill="#6b7280" xml:space="preserve"> ask agent to close 5 gaps                 </text>
+<text x="30.0" y="570.5" fill="#2a2f38" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="30.0" y="587.5" fill="#6b7280" xml:space="preserve">tab column · ↑↓ move · [ ] session · S sessions · / search · F filter · 1-5 tabs · x resolve/dismiss · l light/dark · h headless · q quit                                                                           </text>
+<circle cx="25.2" cy="22.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="25.2" y="26.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">1</text>
+<circle cx="17.0" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="17.0" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">2</text>
+<circle cx="271.2" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="271.2" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">3</text>
+<circle cx="418.8" cy="124.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="418.8" y="128.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">4</text>
+<circle cx="673.0" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="673.0" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">5</text>
+<circle cx="1001.0" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="1001.0" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">6</text>
+<circle cx="1394.6" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="1394.6" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">7</text>
+<circle cx="1394.6" cy="277.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="1394.6" y="281.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">8</text>
+<circle cx="17.0" cy="583.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="17.0" y="587.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">9</text>
+</svg>

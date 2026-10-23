@@ -16,6 +16,22 @@ Praetorium keeps those apart:
 
 It shows up in two places: a **pane** inside each Claude Code session, and a **terminal window** that shows every session at once.
 
+<!-- Launch video: replace this comment with the link, e.g. [▶ Watch the launch video](https://…) -->
+
+![Praetorium's terminal dashboard: sessions, requirements, signals, activity, details and the completion audit](docs/dashboard.svg)
+
+1. **Title bar:** the session you're looking at, whether its agent is working, and how many requirements are verified.
+2. **Sessions:** every Claude Code session running Praetorium, by project, named as Claude Code names them. ● working · ○ idle · ◌ imported · not running. `S` hides this column.
+3. **Requirements:** what you asked for, split from your prompts, each with its status. `/` searches, `F` filters.
+4. **Conflict:** a later message, or the agent's work, contradicts this requirement. `x` marks it resolved.
+5. **Signals:** tool calls that failed or were refused, and things the agent found that you may want to act on.
+6. **Activity · Plan · Tests · Preview:** what the agent did, its plan linked to your requirements, every test or build run, and preview links.
+7. **Details:** the selected item: your exact words, refinements, plan steps, evidence, and what you can do with it.
+8. **Completion audit:** how many requirements are accounted for and verified, and what still stands in the way. `g` asks the agent to close the gaps.
+9. **Keys:** everything the window does, from the keyboard.
+
+<sub>Drawn from the real window running on demo sessions (`bun scripts/screenshot.ts`).</sub>
+
 ## Install
 
 Open Claude Code and paste this. Claude does the rest.
@@ -199,6 +215,10 @@ claude plugin test .
 
 ```bash
 bun scripts/build.ts
+```
+
+```bash
+bun scripts/screenshot.ts
 ```
 
 Live checks against the real model and your machine (Claude Code signed in):
