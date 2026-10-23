@@ -22,7 +22,7 @@ import {
   BACKFILL_SYSTEM, REVIEW_SYSTEM, TAG_SYSTEM, backfillPrompt, parseBackfill, parseReview, parseTagged, reviewPrompt, tagPrompt,
 } from './tagging'
 import type { PastPrompt, Tagged } from './tagging'
-import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, planFrom, previewUrls } from './work'
+import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, planFrom, previewUrls } from './work'
 import type { ReqFilterName } from './work'
 import { RELEASE } from './release'
 import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand, programName } from './platform'
@@ -38,7 +38,7 @@ const PANE = 'ledger'
 const TOOL = 'mcp__praetorium__ledger'
 const HAIKU = 'claude-haiku-5-5'
 const HUMAN = new Set(['composer', 'bridge', 'sdk'])
-const TEST_RE = /\b(test|tests|jest|vitest|pytest|mix test|rspec|playwright|cypress|tsc|typecheck|lint|eslint|build|cargo check|go vet)\b/i
+const TEST_RE = /\b(test|tests|jest|vitest|pytest|mix test|rspec|playwright|cypress|tsc|typecheck|lint|eslint|build|check|cargo check|go vet)\b/i
 
 const DEFAULT_VIEW: View = {
   tab: 'reqs',
@@ -99,7 +99,7 @@ let hasEnded = false
 let tmpRoot = ''
 const stateFile = () => join(plat.data, `state-${sessionId}.json`)
 const inboxFile = () => join(plat.data, `inbox-${sessionId}.jsonl`)
-const snapOf = (ev: ActivityEvent) => join(plat.tmp, `${ev.id}-${base(ev.file ?? '')}`)
+const snapOf = (ev: ActivityEvent) => join(plat.data, 'snapshots', `${ev.id}-${base(ev.file ?? '')}`)
 const programArgs = (...rest: string[]) => [...plat.runner, ...rest]
 
 const now = () => Date.now()
@@ -125,7 +125,8 @@ async function mirror($: $T) {
     await $.fs.write(stateFile(), JSON.stringify({
       sessionId, project, title, hasEnded, entry,
       reqs, replies, events: events.slice(-200), signals: signals.slice(-100), plan, previews,
-      isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: now(),
+      isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: join(plat.data, 'snapshots'), theme, dark: view.dark, at: now(),
+      transcriptsAllowed: await transcriptsAllowed($),
     }))
   } catch {
     // the window just shows the last state it read
@@ -137,9 +138,11 @@ async function save($: $T) {
   if (!storeKey) return
   try {
     const [reqs, replies, events, signals, plan] = await Promise.all([read($, reqsA), read($, repliesA), read($, eventsA), read($, signalsA), read($, planA)])
-    await $.store.set(storeKey, { reqs, replies, events: events.slice(-150), signals: signals.slice(-60), plan })
+    // The store holds 4 MiB in all: 12 sessions of trimmed history fit with room to spare.
+    const lean = events.slice(-80).map(ev => (ev.detail && ev.detail.length > 400 ? { ...ev, detail: `${ev.detail.slice(0, 399)}…` } : ev))
+    await $.store.set(storeKey, { reqs, replies: replies.slice(-60), events: lean, signals: signals.slice(-40), plan, inboxSeq: await read($, inboxSeqA) })
     const keys = (await $.store.keys()).filter(k => k.startsWith('s:'))
-    for (const k of keys.slice(0, Math.max(0, keys.length - 20))) await $.store.delete(k)
+    for (const k of keys.slice(0, Math.max(0, keys.length - 12))) await $.store.delete(k)
   } catch {
     // persistence is best effort; the session state still holds everything
   }
@@ -186,14 +189,15 @@ async function tag($: $T, text: string, reqs: Requirement[]): Promise<Tagged[]> 
   return res.isAnswered ? parseTagged(res.text) : []
 }
 
+// The conflicts the last captured message raised; cleared for every message, tagged or not.
 const conflicts: { id: string; reason: string }[] = []
 
 async function capture($: $T, text: string): Promise<string[]> {
+  conflicts.length = 0
   const reqs = await read($, reqsA)
   const tagged = await tag($, text, reqs)
   if (!tagged.length) return []
   const touched: string[] = []
-  conflicts.length = 0
   await update($, reqsA, list => {
     let out = [...list]
     for (const t of tagged) {
@@ -273,7 +277,7 @@ function describe(e: Record<string, unknown>, when?: number): ActivityEvent | un
 }
 
 async function snapshot($: $T, ev: ActivityEvent) {
-  if (!ev.file) return
+  if (!ev.file || isSecretPath(ev.file)) return
   try {
     const exists = await $.fs.exists(ev.file)
     const text = exists ? String(await $.fs.read(ev.file)) : ''
@@ -424,10 +428,13 @@ async function deliver($: $T, text: string, opts: { interrupt: boolean; start: b
       // the conversation still gets it.
       try {
         await $.prompt.submit({ text })
-      } catch {
+        return 'received'
+      } catch (err) {
+        // The turn is stopped; the instruction waits in the conversation for the next turn.
         await append()
+        lastDeliveryError = `interrupted; ${why(err)}`
+        return 'queued'
       }
-      return 'received'
     }
     if (turnId) {
       await append()
@@ -645,6 +652,42 @@ async function cleanTemp($: $T) {
   await $.fs.write(marker, String(now())).catch(() => undefined)
 }
 
+// A window only sends to a running session, so anything already in the inbox when a session
+// (re)starts was meant for an earlier run of it: never replay it.
+async function skipOldCommands($: $T) {
+  if ((await read($, inboxSeqA)) > 0) return
+  const lines = String(await $.fs.read(inboxFile()).catch(() => '')).split('\n').filter(Boolean)
+  let last = 0
+  for (const line of lines) {
+    try {
+      last = Math.max(last, Number((JSON.parse(line) as { seq?: number }).seq) || 0)
+    } catch {
+      // ignore a broken line
+    }
+  }
+  if (last) await update($, inboxSeqA, () => last)
+}
+
+// Ledgers unused for 30 days and pre-edit copies older than 7 go; so do programs of older versions.
+async function prune($: $T) {
+  const old: string[] = []
+  for (const f of await $.fs.list(plat.data).catch(() => [])) {
+    if (/^(state|inbox|alive)-/.test(f.name) && now() - f.mtimeMs > 30 * 86_400_000) old.push(join(plat.data, f.name))
+  }
+  for (const f of await $.fs.list(join(plat.data, 'snapshots')).catch(() => [])) {
+    if (now() - f.mtimeMs > 7 * 86_400_000) old.push(join(plat.data, 'snapshots', f.name))
+  }
+  for (const f of await $.fs.list(join(plat.data, 'bin')).catch(() => [])) {
+    if (/^\d+\.\d+\.\d+-praetorium/.test(f.name) && !f.name.startsWith(`${RELEASE.version}-`)) old.push(join(plat.data, 'bin', f.name))
+  }
+  for (let i = 0; i < old.length; i += 50) {
+    const batch = old.slice(i, i + 50)
+    await run($, plat.os === 'windows' ? ['cmd', '/c', 'del', '/q', ...batch.map(winPath)] : ['rm', '-f', ...batch])
+  }
+}
+
+const winPath = (p: string) => p.replace(/\//g, '\\')
+
 // ---------- the praetorium program ----------
 
 // The window, importer and diff run as one small program, downloaded only when asked.
@@ -666,16 +709,21 @@ async function install($: $T): Promise<string> {
   const got = await $.process.run(['curl', '-fsSL', '--retry', '2', '-o', part, url], { timeoutMs: 300_000 })
   if (got.exitCode !== 0) return `Download failed: ${got.stderr.trim() || `curl exited with ${got.exitCode}`}`
   const sum = plat.os === 'windows'
-    ? await $.process.run(['certutil', '-hashfile', part, 'SHA256'])
+    ? await $.process.run(['certutil', '-hashfile', winPath(part), 'SHA256'])
     : await $.process.run(plat.os === 'mac' ? ['shasum', '-a', '256', part] : ['sha256sum', part])
   const have = (sum.stdout.match(/\b[0-9a-f]{64}\b/i)?.[0] ?? '').toLowerCase()
   if (have !== want) {
-    await run($, plat.os === 'windows' ? ['cmd', '/c', 'del', part.replace(/\//g, '\\')] : ['rm', '-f', part])
+    await run($, plat.os === 'windows' ? ['cmd', '/c', 'del', winPath(part)] : ['rm', '-f', part])
     return `The download did not match its checksum, so it was deleted and not run (expected ${want.slice(0, 12)}…, got ${have.slice(0, 12) || 'nothing'}…).`
   }
-  await run($, plat.os === 'windows' ? ['cmd', '/c', 'move', '/y', part.replace(/\//g, '\\'), bin.replace(/\//g, '\\')] : ['mv', '-f', part, bin])
+  await run($, plat.os === 'windows' ? ['cmd', '/c', 'move', '/y', winPath(part), winPath(bin)] : ['mv', '-f', part, bin])
   if (plat.os !== 'windows') await run($, ['chmod', '+x', bin])
+  const check = await run($, [bin, '--version'])
+  if (!check || check.exitCode !== 0 || !check.stdout.includes(RELEASE.version)) return `Downloaded and verified, but the program would not start: ${check?.stderr.trim() || 'no output'}`
   plat = { ...plat, runner: [bin] }
+  // An open window switches to the new program by itself.
+  await $.fs.write(join(plat.data, 'viewer.next'), bin)
+  void prune($).catch(() => undefined)
   return `Installed Praetorium ${RELEASE.version} (${name}, checksum verified). /ledger window opens it.`
 }
 
@@ -866,7 +914,7 @@ const TOOL_SCHEMA = {
     note: { type: 'string' },
     title: { type: 'string', description: 'add: the new requirement' },
     derived_from: { type: 'string', description: 'add: id it splits' },
-    index: { type: 'number', description: 'detach: history position of a message wrongly linked as a refinement of id' },
+    index: { type: 'number', description: 'detach: history position (0 is the original ask) of a message wrongly linked as a refinement of id' },
   },
   required: ['action'],
 }
@@ -897,15 +945,16 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
   if (status === 'verified') {
     const events = await read($, eventsA)
     const lastEdit = Math.max(0, ...events.filter(x => x.kind === 'code').map(x => x.at))
-    const cmd = s('test_command')
+    // Evidence is a test, build or check command (not any command), named by a real part of it.
+    const cmd = s('test_command').trim().length >= 4 ? s('test_command').trim() : ''
     const pass = cmd
-      ? [...events].reverse().find(x => (x.kind === 'test' || x.kind === 'command') && x.state === 'ok' && x.at >= lastEdit && (x.detail ?? '').includes(cmd))
+      ? [...events].reverse().find(x => x.kind === 'test' && x.state === 'ok' && x.at >= lastEdit && (x.detail ?? '').includes(cmd))
       : undefined
     if (pass) {
       evidence.push({ kind: 'test', at: now(), text: pass.detail ?? pass.title, eventId: pass.id })
     } else {
       status = 'implemented'
-      reply = `${req.id} recorded as implemented, NOT verified: no passing command matching "${cmd}" ran after the last edit. Run the check, then update again.`
+      reply = `${req.id} recorded as implemented, NOT verified: no passing test, build or check command matching "${s('test_command')}" ran after the last edit. Run one, then update again.`
     }
   }
   if (s('note')) evidence.push({ kind: 'note', at: now(), text: s('note') })
@@ -940,7 +989,7 @@ export const register: Register = on => {
       entry = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) ?? ''
       hasEnded = false
       storeKey = `s:${sessionId}`
-      const saved = (await $.store.get(storeKey)) as { reqs?: Requirement[]; replies?: Reply[]; events?: ActivityEvent[]; signals?: Signal[]; plan?: PlanStep[] } | undefined
+      const saved = (await $.store.get(storeKey)) as { reqs?: Requirement[]; replies?: Reply[]; events?: ActivityEvent[]; signals?: Signal[]; plan?: PlanStep[]; inboxSeq?: number } | undefined
       if (saved && (await read($, reqsA)).length === 0) {
         if (saved.reqs) await update($, reqsA, () => saved.reqs ?? [])
         if (saved.replies) await update($, repliesA, () => saved.replies ?? [])
@@ -948,6 +997,7 @@ export const register: Register = on => {
         if (saved.signals) await update($, signalsA, () => saved.signals ?? [])
         if (saved.plan) await update($, planA, () => saved.plan ?? [])
       }
+      if (saved?.inboxSeq && (await read($, inboxSeqA)) < saved.inboxSeq) await update($, inboxSeqA, () => saved.inboxSeq ?? 0)
       const dark = await $.store.get('dark')
       if (typeof dark === 'boolean') await update($, viewA, v => ({ ...v, dark }))
       const theme = await $.store.get('theme')
@@ -958,6 +1008,8 @@ export const register: Register = on => {
     plat = await detect($).catch(() => plat)
     await migrateLedgers($)
     await cleanTemp($)
+    await skipOldCommands($)
+    $.clock.after(3000, () => void prune($).catch(() => undefined))
     if ((await read($, reqsA)).length === 0) {
       // Nothing in session state (a fresh process, or a reload that lost it): take over this
       // session's ledger file if it has requirements: one /ledger import wrote, one an earlier
@@ -1012,7 +1064,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.command || e.isMeta || !HUMAN.has(e.origin.kind)) return next(e)
+    if (e.command || e.isMeta || !HUMAN.has(e.origin.kind) || entry.startsWith('sdk')) return next(e)
     const context = [...(e.context ?? [])]
     if (!(await read($, titleA))) await update($, titleA, () => clip(e.text.replace(/\s+/g, ' ').trim(), 70))
     const touched = await capture($, e.text)
@@ -1121,7 +1173,7 @@ export const register: Register = on => {
       <Box flexDirection="column" padding={1} gap={1} backgroundColor={p.bg}>
         <Text color={p.text} bold>Show sessions you started before Praetorium?</Text>
         <Text color={p.text2}>
-          Praetorium can read the Claude Code transcripts on this computer (~/.claude/projects) from the last 2 days, so earlier sessions appear in the ledger.
+          Praetorium can read the Claude Code transcripts on this computer (~/.claude/projects) from the last 2 days, so earlier sessions appear in the ledger, and keep doing so as new sessions start. The window also reads each session's title from its transcript.
         </Text>
         <Text color={p.text2}>
           It reads your prompts, the names and file paths of the agent's tool calls, and its replies. File contents are not kept. Each session costs one Claude Haiku call to list its requirements. Nothing is written to the transcripts.

@@ -23,7 +23,8 @@ if (cmd === 'view') {
   showDiff(args[0] ?? '', args[1] ?? '')
   process.exit(0)
 } else if (cmd === '--version' || cmd === 'version') {
-  console.log('praetorium 0.3.0')
+  // Set by scripts/build.ts from plugin.json; "dev" when run from source.
+  console.log(`praetorium ${typeof PRAETORIUM_VERSION === 'string' ? PRAETORIUM_VERSION : 'dev'}`)
 } else {
   console.error('usage: praetorium view <data dir> [session] [projects dir] | import … | diff <snapshot> <file>')
   process.exit(2)

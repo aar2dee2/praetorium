@@ -102,3 +102,7 @@ export function gapOf(r: Requirement, plan: PlanStep[] = []): string {
   }
   return ''
 }
+
+// Files that may hold secrets: never copied for diffs (their diff opens the file instead).
+const SECRET = /(^|[\\/])(\.env(\..*)?|\.npmrc|\.netrc|\.pgpass|id_(rsa|ed25519|ecdsa)[^\\/]*|[^\\/]*\.(pem|key|p12|pfx)|credentials[^\\/]*|secrets?\.[a-z]+)$/i
+export const isSecretPath = (file: string) => SECRET.test(file)

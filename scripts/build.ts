@@ -5,7 +5,7 @@
 //   gh release create v<version> dist/praetorium-*    publish (after committing release.ts)
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 
 const version = JSON.parse(readFileSync('.claude-plugin/plugin.json', 'utf8')).version as string
 const targets: [string, string][] = [
@@ -16,10 +16,12 @@ const targets: [string, string][] = [
   ['bun-windows-x64', 'praetorium-windows-x64.exe'],
 ]
 
+rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist', { recursive: true })
 const sha256: Record<string, string> = {}
 for (const [target, name] of targets) {
-  const r = Bun.spawnSync(['bun', 'build', '--compile', '--minify', `--target=${target}`, 'viewer/cli.mjs', '--outfile', `dist/${name}`], { stdout: 'inherit', stderr: 'inherit' })
+  const r = Bun.spawnSync(['bun', 'build', '--compile', '--minify', `--target=${target}`, `--define=PRAETORIUM_VERSION=${JSON.stringify(version)}`,
+    'viewer/cli.mjs', '--outfile', `dist/${name}`], { stdout: 'inherit', stderr: 'inherit' })
   if (r.exitCode !== 0) throw new Error(`build failed for ${target}`)
   sha256[name] = createHash('sha256').update(readFileSync(`dist/${name}`)).digest('hex')
   console.log(`${name}  ${sha256[name]}`)

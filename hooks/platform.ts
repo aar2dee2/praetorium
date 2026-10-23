@@ -60,7 +60,6 @@ export const LINUX: (Terminal & { cmd: string })[] = [
 ]
 
 const sq = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`
-const dq = (x: string) => `"${x.replace(/"/g, '""')}"`
 const applescript = (x: string) => x.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
 export type Launch = { cmd: string[]; file?: { path: string; text: string } }
@@ -93,13 +92,14 @@ export function launchCommand(os: OS, term: Terminal, argv: string[], title: str
     }
   }
   if (os === 'windows') {
-    const winArgs = argv.map(dq).join(' ')
     switch (term.id) {
       case 'wt': return { cmd: ['wt', '-w', 'new', '--title', title, ...argv] }
       case 'wezterm': return { cmd: ['wezterm', 'start', '--', ...argv] }
+      // `start` takes the first quoted argument as the window title, so the title stays unquoted
+      // and one word; the program then runs directly, with no inner shell to re-parse its arguments.
       case 'pwsh':
-      case 'powershell': return { cmd: ['cmd', '/c', 'start', dq(title), term.id, '-NoExit', '-Command', `& ${winArgs}`] }
-      default: return { cmd: ['cmd', '/c', 'start', dq(title), 'cmd', '/k', winArgs] }
+      case 'powershell': return { cmd: ['cmd', '/c', 'start', 'Praetorium', term.id, '-NoExit', '-Command', `& ${argv.map(a => `'${a.replace(/'/g, "''")}'`).join(' ')}`] }
+      default: return { cmd: ['cmd', '/c', 'start', 'Praetorium', ...argv] }
     }
   }
   switch (term.id) {

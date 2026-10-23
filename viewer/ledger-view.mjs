@@ -27,14 +27,21 @@ const MONTH = 30 * 24 * 3600 * 1000
 
 // ---------- supervisor: restart the window when its program changes ----------
 
+const NEXT = path.join(dir, 'viewer.next') // a newly installed program the window should move to
+
 if (!process.env.PRAETORIUM_VIEWER_CHILD) {
   let select = cur
+  let self = G.self
   for (;;) {
-    const r = spawnSync(G.self[0], [...G.self.slice(1), 'view', dir, select, projectsDir], {
+    const r = spawnSync(self[0], [...self.slice(1), 'view', dir, select, projectsDir], {
       stdio: 'inherit', env: { ...process.env, PRAETORIUM_VIEWER_CHILD: '1' },
     })
     if (r.status !== RELOAD) process.exit(r.status ?? 0)
     try { select = fs.readFileSync(path.join(dir, 'viewer.select'), 'utf8').trim() } catch { /* keep */ }
+    try {
+      const next = fs.readFileSync(NEXT, 'utf8').trim()
+      if (next && fs.existsSync(next) && G.isCompiled) self = [next]
+    } catch { /* stay on this program */ }
   }
 }
 
@@ -57,7 +64,9 @@ let reqFilter = 'all'
 const sel = { reqs: 0, signals: 0, activity: 0, plan: 0, tests: 0, preview: 0 }
 let compose = null // { mode, text, interrupt, eventId, refines } | { mode: 'search', text }
 let flash = ''
-let seq = Date.now()
+// Commands are ordered by time across windows: the session keeps only ones newer than the last.
+let seq = 0
+const nextSeq = () => (seq = Math.max(seq + 1, Date.now() * 1000))
 
 // ---------- helpers ----------
 
@@ -155,6 +164,9 @@ function indexTranscripts() {
 
 // The session's name as Claude Code shows it: its latest custom title, read from the transcript's tail.
 function refreshTitles() {
+  // Transcripts are read only once you've allowed it (the consent dialog); until then, first prompts.
+  const allowed = [...sessions.values()].some(x => x.state.transcriptsAllowed)
+  if (!allowed) return
   for (const id of sessions.keys()) {
     const file = transcriptOf.get(id)
     if (!file) continue
@@ -393,7 +405,7 @@ function render() {
   const st = sessions.get(cur)?.state
   const state = !st ? seg('no session', P.text3) : st.imported ? seg('imported · read-only until reopened', P.warn)
     : !isLive(st) ? seg('not running · nothing can be sent', P.warn) : st.isWorking ? seg('● working', P.active) : seg('○ idle', P.done)
-  const rows = [{ line: [seg(' Ledger ', P.text, undefined, true), seg(` ${st ? `${projectOf(st)} · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
+  const rows = [{ line: [seg(' Praetorium - Your Claude Code Dashboard ', P.text, undefined, true), seg('  '), seg(` ${st ? `${projectOf(st)} · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
     seg(`   ${L.length} requirements · `, P.text3), seg(`${verified} verified`, P.done)] }, { line: [] }]
   const cols = layout(W)
   const hasSignalsCol = cols.some(([c]) => c === 'signals')
@@ -479,7 +491,7 @@ function canSend() {
 
 function send(cmd, note) {
   if (!cur || !canSend()) return
-  fs.appendFileSync(inboxFile(), JSON.stringify({ seq: ++seq, ...cmd }) + '\n')
+  fs.appendFileSync(inboxFile(), JSON.stringify({ seq: nextSeq(), ...cmd }) + '\n')
   say(note)
 }
 
@@ -622,9 +634,10 @@ function prune() {
 }
 
 // Restart when the program changes: the binary itself, or the source while developing.
-const watched = G.isCompiled ? [process.execPath] : ['ledger-view.mjs', 'cli.mjs', 'diff.mjs', '../hooks/work.ts', '../hooks/theme.ts']
-  .map(f => fileURLToPath(new URL(f, import.meta.url)))
-for (const f of watched) fs.watchFile(f, { interval: 1000 }, (a, b) => { if (a.mtimeMs !== b.mtimeMs) quit(RELOAD) })
+const watched = G.isCompiled
+  ? [process.execPath, NEXT]
+  : ['ledger-view.mjs', 'cli.mjs', 'diff.mjs', '../hooks/work.ts', '../hooks/theme.ts'].map(f => fileURLToPath(new URL(f, import.meta.url)))
+for (const f of watched) fs.watchFile(f, { interval: 1000 }, (a, b) => { if (a.mtimeMs !== b.mtimeMs && a.mtimeMs > 0) quit(RELOAD) })
 
 prune()
 indexTranscripts()

@@ -63,3 +63,19 @@ describe('requirement search and filters', () => {
     expect(filterReqs(REQS, '', 'open').map(r => r.id)).toEqual(['R1', 'R3', 'R4'])
   })
 })
+
+import { isSecretPath } from '../hooks/work'
+import { launchCommand } from '../hooks/platform'
+
+describe('safety', () => {
+  test('files that may hold secrets are never copied', async () => {
+    for (const f of ['/app/.env', '/app/.env.local', 'C:\\app\\.npmrc', '/home/a/.ssh/id_ed25519', '/k/server.pem', '/k/tls.key', '/app/credentials.json', '/app/secrets.yaml'])
+      expect(isSecretPath(f)).toBe(true)
+    for (const f of ['/app/src/env.ts', '/app/keyboard.tsx', '/app/README.md', '/app/environment.md'])
+      expect(isSecretPath(f)).toBe(false)
+  })
+  test('Windows runs the program directly, with an unquoted one-word title', async () => {
+    const l = launchCommand('windows', { id: 'cmd', name: 'Command Prompt' }, ['C:/Users/A B/praetorium.exe', 'view', 'C:/Users/A B/.claude/praetorium'], 'Praetorium', 'C:/Users/A B')
+    expect(l?.cmd).toEqual(['cmd', '/c', 'start', 'Praetorium', 'C:/Users/A B/praetorium.exe', 'view', 'C:/Users/A B/.claude/praetorium'])
+  })
+})
