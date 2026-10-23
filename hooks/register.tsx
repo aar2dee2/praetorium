@@ -140,7 +140,7 @@ async function patchEvent($: $T, id: string, patch: Partial<ActivityEvent>) {
 
 async function tag($: $T, text: string, reqs: Requirement[]): Promise<Tagged[]> {
   const lastReply = [...(await read($, eventsA))].reverse().find(ev => ev.kind === 'message')?.detail ?? ''
-  const res = await $.model.complete({ model: HAIKU, system: TAG_SYSTEM, prompt: tagPrompt(reqs, text, lastReply) })
+  const res = await $.model.complete({ model: HAIKU, system: TAG_SYSTEM, prompt: tagPrompt(reqs, text, lastReply), maxTokens: 2000 })
   return res.isAnswered ? parseTagged(res.text) : []
 }
 
@@ -360,31 +360,48 @@ async function importTheme($: $T, from: string): Promise<Theme> {
   }
   const text = await readThemeSource($, from)
   if (!text.trim()) throw new Error(`found no colours in ${from}`)
-  const res = await $.model.complete({ model: HAIKU, system: IMPORT_SYSTEM, prompt: `Source: ${sourceKind(from)}\n\n${text}` })
+  const res = await $.model.complete({ model: HAIKU, system: IMPORT_SYSTEM, prompt: `Source: ${sourceKind(from)}\n\n${text}`, maxTokens: 2000 })
   if (!res.isAnswered) throw new Error(`the model did not answer (${res.reason})`)
   return themeFromReply(res.text)
 }
 
 // ---------- delivering replies to the agent ----------
 
+// Resolves what actually happened, and why when it failed: the ledger never claims more than that.
+let lastDeliveryError = ''
 async function deliver($: $T, text: string, opts: { interrupt: boolean; start: boolean }): Promise<Delivery> {
   const turnId = await read($, turnA)
+  lastDeliveryError = ''
+  const why = (err: unknown) => clip(err instanceof Error ? err.message : String(err), 300)
+  const append = () => $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
   try {
     if (turnId && opts.interrupt) {
       await $.turn.abort({ turnId })
-      await $.prompt.submit({ text })
+      // A new turn carries the instruction; where a session can't start one (headless),
+      // the conversation still gets it.
+      try {
+        await $.prompt.submit({ text })
+      } catch {
+        await append()
+      }
       return 'received'
     }
     if (turnId) {
-      await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
+      await append()
       return 'received'
     }
     if (opts.start) {
-      await $.prompt.submit({ text })
-      return 'received'
+      try {
+        await $.prompt.submit({ text })
+        return 'received'
+      } catch (err) {
+        lastDeliveryError = why(err)
+        return 'queued' // goes with the next prompt
+      }
     }
     return 'queued'
-  } catch {
+  } catch (err) {
+    lastDeliveryError = why(err)
     return 'failed'
   }
 }
@@ -420,6 +437,7 @@ async function sendReply($: $T, ev: ActivityEvent | undefined, text: string, vie
   } else if (view.mode === 'redirect') {
     reply.delivery = await deliver($, `${about}, as an instruction: ${text}`, { interrupt: view.interrupt, start: true })
   }
+  if (lastDeliveryError) reply.error = lastDeliveryError
 
   await update($, repliesA, list => [...list, reply])
   await update($, viewA, v => ({ ...v, interrupt: false }))
@@ -595,7 +613,7 @@ async function readPast($: $T, args: string[]): Promise<PastSession[]> {
 
 // One Haiku call turns a whole past conversation into requirements; tool calls become events.
 async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]; events: ActivityEvent[] }> {
-  const res = await $.model.complete({ model: HAIKU, system: BACKFILL_SYSTEM, prompt: backfillPrompt(past.prompts) })
+  const res = await $.model.complete({ model: HAIKU, system: BACKFILL_SYSTEM, prompt: backfillPrompt(past.prompts), maxTokens: 8000 })
   const items = res.isAnswered ? parseBackfill(res.text, past.prompts.length) : []
   const reqs: Requirement[] = []
   const byOwnId = new Map<string, string>()
@@ -666,11 +684,23 @@ async function backfillSelf($: $T) {
   }
 }
 
+// The temp folder is cleared on restart, taking imported ledgers with it. Once allowed,
+// each session start re-imports what's missing; a lock keeps sessions starting together
+// from importing (and paying for) the same transcripts twice.
+async function autoImport($: $T) {
+  if (!(await transcriptsAllowed($))) return
+  const lock = join(plat.tmp, 'import.lock')
+  const last = Number(await $.fs.read(lock).catch(() => '0'))
+  if (now() - last < 10 * 60_000) return
+  await $.fs.write(lock, String(now()))
+  await importSessions($, 2).catch(() => undefined)
+}
+
 async function importCommand($: $T, arg: string): Promise<string> {
   if (arg === 'allow') {
     await $.store.set('transcripts', 'allowed')
     void $.ui.close({ id: CONSENT_PANE }).catch(() => undefined)
-    return `Allowed. ${await importSessions($, 2)}`
+    return `Allowed. ${await importSessions($, 2).catch(err => `Could not import: ${err instanceof Error ? err.message : String(err)}`)}`
   }
   if (arg === 'revoke') {
     await $.store.set('transcripts', 'declined')
@@ -681,7 +711,7 @@ async function importCommand($: $T, arg: string): Promise<string> {
     return 'Praetorium needs your permission to read existing transcripts: answer in the dialog, or run /ledger import allow.'
   }
   const days = Math.min(30, Math.max(1, Number.parseInt(arg, 10) || 2))
-  return importSessions($, days)
+  return importSessions($, days).catch(err => `Could not import: ${err instanceof Error ? err.message : String(err)}`)
 }
 
 // ---------- the agent's ledger tool ----------
@@ -787,20 +817,35 @@ export const register: Register = on => {
     $root = $.plugin.root
     plat = await detect($).catch(() => plat)
     if ((await read($, reqsA)).length === 0) {
-      // Imported earlier while this session wasn't running Praetorium: take it over.
-      const imported = await $.fs.read(stateFile()).then(t => JSON.parse(t) as { imported?: boolean; reqs?: Requirement[]; events?: ActivityEvent[]; title?: string }).catch(() => undefined)
-      if (imported?.imported) {
-        await update($, reqsA, () => imported.reqs ?? [])
-        await update($, eventsA, () => imported.events ?? [])
-        if (imported.title) await update($, titleA, () => imported.title ?? '')
+      // Nothing in session state (a fresh process, or a reload that lost it): take over this
+      // session's ledger file if it has requirements: one /ledger import wrote, one an earlier
+      // load mirrored, or one from 0.1, which kept it in /tmp/claude-ledger.
+      type Kept = { reqs?: Requirement[]; events?: ActivityEvent[]; replies?: Reply[]; title?: string }
+      let kept: Kept | undefined
+      for (const file of [stateFile(), `/tmp/claude-ledger/state-${sessionId}.json`]) {
+        const found = await $.fs.read(file).then(t => JSON.parse(t) as Kept).catch(() => undefined)
+        if (found?.reqs?.length) {
+          kept = found
+          break
+        }
+      }
+      if (kept) {
+        const known = new Set((await read($, eventsA)).map(ev => ev.id))
+        await update($, reqsA, () => kept.reqs ?? [])
+        await update($, repliesA, list => (list.length ? list : kept.replies ?? []))
+        await update($, eventsA, list => [...(kept.events ?? []).filter(ev => !known.has(ev.id)), ...list].sort((a, b) => a.at - b.at).slice(-300))
+        if (kept.title && !(await read($, titleA))) await update($, titleA, () => kept.title ?? '')
+        await save($)
       } else {
         $.clock.after(0, () => void backfillSelf($))
       }
     }
     if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
+    $.clock.after(5000, () => void autoImport($).catch(() => undefined))
     $.clock.every(700, () => void pollInbox($).catch(() => undefined))
     await mirror($)
-    await $.tool.register({ name: 'ledger', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
+    // A session started without tools refuses this; the ledger still works without it.
+    await $.tool.register({ name: 'ledger', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false }).catch(() => undefined)
     await $.command.register({ name: 'ledger', description: 'Open the requirements ledger pane', argumentHint: '[window [terminal] | theme … | import [days | allow | revoke] | wide | narrow]' })
     void openPane($)
     return next(e)
@@ -828,7 +873,7 @@ export const register: Register = on => {
     const queued = (await read($, repliesA)).filter(r => r.delivery === 'queued')
     if (queued.length) {
       const reqs = await read($, reqsA)
-      context.push(`[Ledger] Requirements the user added while you were idle:\n${queued.map(r => `${r.reqId}: ${reqs.find(x => x.id === r.reqId)?.title ?? r.text}`).join('\n')}`)
+      context.push(`[Ledger] What the user sent from the ledger while you were idle:\n${queued.map(r => (r.reqId ? `${r.reqId}: ${reqs.find(x => x.id === r.reqId)?.title ?? r.text}` : `Instruction: ${r.text}`)).join('\n')}`)
       await update($, repliesA, list => list.map(r => (r.delivery === 'queued' ? { ...r, delivery: 'received' as const } : r)))
     }
     await save($)
@@ -893,7 +938,8 @@ export const register: Register = on => {
       await $.ui.close({ id: CONSENT_PANE })
       if (choice === 'allowed') {
         void backfillSelf($)
-        await $.ui.toast(await importSessions($, 2))
+        const said = await importSessions($, 2).catch(err => `Could not import: ${err instanceof Error ? err.message : String(err)}`)
+        await $.ui.toast(said)
       }
     }
     return (
@@ -1016,7 +1062,7 @@ export const register: Register = on => {
         )}
         {replies.filter(r => r.eventId === selected.id).map(r => (
           <Text key={`th-${r.id}`} color={p.text2}>
-            <Text color={p.text3}>You {hhmm(r.at)}: </Text>{r.text} <Text color={r.delivery === 'failed' ? p.danger : p.text3}>({DELIVERY[r.delivery]})</Text>
+            <Text color={p.text3}>You {hhmm(r.at)}: </Text>{r.text} <Text color={r.delivery === 'failed' ? p.danger : p.text3}>({DELIVERY[r.delivery]}{r.error ? `: ${r.error}` : ''})</Text>
           </Text>
         ))}
         <Select

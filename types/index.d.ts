@@ -56,6 +56,7 @@ export type Reply = {
   delivery: Delivery
   reqId?: string
   interrupt?: boolean
+  error?: string
 }
 
 export type Filter = 'key' | 'all' | 'code' | 'tests' | 'messages'

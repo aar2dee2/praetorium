@@ -33,3 +33,13 @@ describe('themes', () => {
     expect(lines).not.toContain('plugins')
   })
 })
+
+import { parseBackfill } from '../hooks/tagging'
+
+describe('backfill replies', () => {
+  test('a reply cut off mid-list keeps the items that arrived whole', async () => {
+    const cut = '{"items":[{"id":"R1","title":"Show sessions","quote":"q","msg":1,"refines":null},{"id":"R2","title":"Use iTerm","quote":"q","msg":2,"refines":"R1"},{"id":"R3","title":"Half'
+    const items = parseBackfill(cut, 3)
+    expect(items.map(i => i.id)).toEqual(['R1', 'R2'])
+  })
+})

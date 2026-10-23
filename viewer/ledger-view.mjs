@@ -267,7 +267,7 @@ function detailLines(w) {
       const thread = S.replies.filter(r => r.eventId === ev.id)
       if (thread.length) lines.push([])
       for (const r of thread) {
-        lines.push([seg(`You ${hhmm(r.at)}`, p.text3), seg(`  ${DELIVERY[r.delivery]}`, r.delivery === 'failed' ? p.danger : r.delivery === 'kept' ? p.text3 : p.active)])
+        lines.push([seg(`You ${hhmm(r.at)}`, p.text3), seg(`  ${DELIVERY[r.delivery]}${r.error ? `: ${r.error}` : ''}`, r.delivery === 'failed' ? p.danger : r.delivery === 'kept' ? p.text3 : p.active)])
         lines.push(...wrap(r.text, w, p.text2, '  '))
       }
       lines.push([], [

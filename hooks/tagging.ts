@@ -58,11 +58,19 @@ export function backfillPrompt(prompts: PastPrompt[]): string {
 }
 
 export function parseBackfill(reply: string, count: number): BackfillItem[] {
+  let items: BackfillItem[]
   try {
     const json = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)
-    const items = (JSON.parse(json) as { items?: BackfillItem[] }).items ?? []
-    return items.filter(i => typeof i.title === 'string' && i.title.trim() && Number.isInteger(i.msg) && i.msg >= 1 && i.msg <= count)
+    items = (JSON.parse(json) as { items?: BackfillItem[] }).items ?? []
   } catch {
-    return []
+    // A reply cut off mid-list: keep every item that arrived whole.
+    items = [...reply.matchAll(/\{[^{}]*"title"[^{}]*\}/g)].flatMap(m => {
+      try {
+        return [JSON.parse(m[0]) as BackfillItem]
+      } catch {
+        return []
+      }
+    })
   }
+  return items.filter(i => typeof i.title === 'string' && i.title.trim() && Number.isInteger(i.msg) && i.msg >= 1 && i.msg <= count)
 }
