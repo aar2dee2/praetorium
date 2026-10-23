@@ -111,6 +111,7 @@ const bgCode = hex => (TRUECOLOR ? `\x1b[48;2;${rgb(hex).join(';')}m` : `\x1b[48
 const STATUS = {
   captured: ['Not started', 'muted'], in_progress: ['In progress', 'active'], implemented: ['Done, not verified', 'warn'],
   verified: ['Verified', 'done'], blocked: ['Blocked', 'danger'], needs_clarification: ['Needs you', 'warn'], deferred: ['Deferred', 'muted'],
+  revisit: ['Done for now · revisit', 'done'],
 }
 const KIND = { discovery: ['Discovery', 'muted'], plan: ['Plan', 'active'], code: ['Code change', 'active'], command: ['Command', 'muted'], test: ['Test', 'warn'], message: ['Agent', 'active'] }
 const SIGNAL = { failed: ['Failed', 'danger'], blocked: ['Blocked', 'danger'], finding: ['Found', 'warn'], conflict: ['Conflict', 'danger'] }
@@ -332,6 +333,7 @@ function detailLines(w) {
     if (r) {
       const [label, t] = r.needsReverify ? ['Needs re-verification', 'warn'] : STATUS[r.status]
       lines.push([seg(`${r.id} `, P.text3), chip(label, t)], ...wrap(r.title, w, P.text), [])
+      if (r.status === 'revisit' && r.revisit) lines.push(...wrap(`Revisit ${r.revisit}`, w, P.text2), [])
       if (r.conflict) lines.push(...wrap(`Conflict (${r.conflict.source === 'agent' ? "the agent's work" : 'a later message'}): ${r.conflict.reason}`, w, P.danger), [key('x'), seg(' mark resolved', P.text3)], [])
       for (const h of r.history) {
         lines.push([seg(`${hhmm(h.at)} ${h.kind === 'original' ? 'Asked' : 'Refined'}${h.by === 'agent' ? ' (agent)' : ''}`, P.text3)])
@@ -369,6 +371,8 @@ function detailLines(w) {
   lines.push(...wrap("The agent saying it's done doesn't count: verified needs a passing check or your acceptance.", w, P.text3))
   for (const r of gaps) lines.push(...wrap(`${r.id} ${gapOf(r, S.plan ?? [])}`, w, r.conflict ? P.danger : P.warn))
   if (gaps.length) lines.push([key('g'), seg(` ask agent to close ${gaps.length} gap${gaps.length === 1 ? '' : 's'}`, P.text3)])
+  const later = L.filter(r => r.status === 'revisit')
+  if (later.length) lines.push([], [seg('TO REVISIT', P.text2, undefined, true)], ...later.flatMap(r => wrap(`${r.id} ${r.revisit ?? ''}`, w, P.text3)))
   return lines
 }
 

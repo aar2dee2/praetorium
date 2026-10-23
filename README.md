@@ -8,9 +8,9 @@ Praetorium keeps those apart:
 
 - **Requirements ledger.** Each prompt you send is split into separate requirements (R1, R2…) by Claude Haiku, with your exact words kept. A later correction is linked to the requirement it changes; nothing is silently overwritten. You don't label anything.
 - **Activity stream.** Edits, commands, tests, plans and the agent's messages. Reply to any one of them as a **comment** (the agent never sees it), a **new or refined requirement**, or an **instruction** to the agent, optionally interrupting it first. Each reply shows whether the agent actually received it.
-- **Completion audit.** A requirement counts as verified only with evidence: a passing test, build or check run after the last edit, or your own acceptance. The agent saying it's done doesn't count.
+- **Completion audit.** A requirement counts as verified only with evidence: a passing test, build or check run after the last edit, or your own acceptance. The agent saying it's done doesn't count. When you settle for something "for now", it's marked **Done for now · revisit** with the condition you gave ("if contributor activity grows"), and listed under *To revisit* instead of as a gap.
 - **Signals.** Tool calls that failed or were refused, and things the agent found that were new or unexpected, in one column so you don't have to dig through the chat.
-- **Conflicts.** When a later message contradicts an earlier requirement, or the agent's work goes against one, the requirement is flagged until you resolve it, and the agent is told to ask you which wins.
+- **Conflicts.** When a later message contradicts an earlier requirement, or the agent's work goes against one, the requirement is flagged until you resolve it, and the agent is told to ask you which wins. A deliberate change ("actually, drop the search box") usually counts as a refinement instead; the line between the two is a judgment call, so now and then a correction is flagged as a conflict, and `x` settles it.
 - **Plan, Tests and Preview.** The agent's todo list with each step linked to the requirements it serves (and the ones it leaves out), every test or build run with the requirements it's evidence for, and the dev servers or preview links its commands printed.
 - **Diffs where you read code.** A change opens in Cursor, VS Code or Windsurf, or as a diff in the terminal. No diffs are drawn in the ledger itself.
 
@@ -21,7 +21,7 @@ It shows up in two places: a **pane** inside each Claude Code session, and a **t
 ![Praetorium's terminal dashboard: sessions, requirements, signals, activity, details and the completion audit](docs/dashboard.svg)
 
 1. **Title bar:** the session you're looking at, whether its agent is working, and how many requirements are verified.
-2. **Sessions:** every Claude Code session running Praetorium, by project, named as Claude Code names them. ● working · ○ idle · ◌ imported · not running. `S` hides this column.
+2. **Sessions:** every Claude Code session running Praetorium, by project, named as Claude Code names them: ● working, ○ idle, ◌ imported, `·` not running. `S` hides this column.
 3. **Requirements:** what you asked for, split from your prompts, each with its status. `/` searches, `F` filters.
 4. **Conflict:** a later message, or the agent's work, contradicts this requirement. `x` marks it resolved.
 5. **Signals:** tool calls that failed or were refused, and things the agent found that you may want to act on.
@@ -115,7 +115,7 @@ Titled **Praetorium - Your Claude Code Dashboard**. Sessions are listed by proje
 | `[` · `]` | Previous / next session |
 | `S` | Show or hide the Sessions column, for more room on one session |
 | `1`–`5` | Activity, Plan, Tests, Preview, Signals |
-| `/` · `F` | Search requirements · cycle the filter (open, done but not verified, verified, conflicts, yours, the agent's) |
+| `/` · `F` | Search requirements · cycle the filter (open, done but not verified, verified, to revisit, conflicts, yours, the agent's) |
 | `c` or Enter | Comment on the selected event (the agent doesn't see it) · on a signal, go to its event · on a preview, open it |
 | `n` | New requirement · on a signal, make the signal one |
 | `f` | Refine the selected requirement |

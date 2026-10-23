@@ -57,13 +57,14 @@ export function failureText(tool: string, text: string): string {
 
 // ---------- shared by the pane and the window ----------
 
-export type ReqFilterName = 'all' | 'open' | 'unverified' | 'verified' | 'conflicts' | 'yours' | 'agents'
+export type ReqFilterName = 'all' | 'open' | 'unverified' | 'verified' | 'revisit' | 'conflicts' | 'yours' | 'agents'
 
 export const REQ_FILTERS: { value: ReqFilterName; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
   { value: 'unverified', label: 'Done, not verified' },
   { value: 'verified', label: 'Verified' },
+  { value: 'revisit', label: 'To revisit' },
   { value: 'conflicts', label: 'Conflicts' },
   { value: 'yours', label: 'Asked by you' },
   { value: 'agents', label: 'Added by the agent' },
@@ -76,9 +77,10 @@ export function filterReqs(reqs: Requirement[], query: string, filter: ReqFilter
   return reqs.filter(r => {
     if (q && !`${r.id} ${r.title} ${r.history.map(h => h.text).join(' ')}`.toLowerCase().includes(q)) return false
     switch (filter) {
-      case 'open': return !isVerified(r) && r.status !== 'deferred'
+      case 'open': return !isVerified(r) && r.status !== 'deferred' && r.status !== 'revisit'
       case 'unverified': return r.status === 'implemented' || Boolean(r.needsReverify)
       case 'verified': return isVerified(r)
+      case 'revisit': return r.status === 'revisit'
       case 'conflicts': return Boolean(r.conflict)
       case 'yours': return r.history[0]?.by !== 'agent'
       case 'agents': return r.history[0]?.by === 'agent'
@@ -91,7 +93,7 @@ export function filterReqs(reqs: Requirement[], query: string, filter: ReqFilter
 export function gapOf(r: Requirement, plan: PlanStep[] = []): string {
   if (r.conflict) return `Conflicting instruction: ${r.conflict.reason}`
   if (r.needsReverify) return 'Changed after it was done; check it again'
-  if (r.status === 'verified' || r.status === 'deferred') return ''
+  if (r.status === 'verified' || r.status === 'deferred' || r.status === 'revisit') return ''
   if (plan.length && !plan.some(s => s.reqIds.includes(r.id)) && r.status === 'captured') return "Not in the agent's plan"
   switch (r.status) {
     case 'implemented': return 'Agent says done; no passing check yet'

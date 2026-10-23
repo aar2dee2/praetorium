@@ -86,3 +86,16 @@ describe('env files', () => {
       expect(isSecretPath(f)).toBe(true)
   })
 })
+
+describe('done for now, to revisit', () => {
+  test('counts as accounted for, not a gap, and has its own filter', async () => {
+    const r = req('R9', 'Run audits twice a week', { status: 'revisit', revisit: 'if contributor activity grows' })
+    expect(gapOf(r, [])).toBe('')
+    expect(filterReqs([...REQS, r], '', 'revisit').map(x => x.id)).toEqual(['R9'])
+    expect(filterReqs([...REQS, r], '', 'open').map(x => x.id)).not.toContain('R9')
+  })
+  test('the tagger can mark a requirement to revisit', async () => {
+    const t = parseTagged('{"items":[{"title":"Keep audits twice a week for now","quote":"twice a week is okay for now","refines":"R44","conflicts":null,"revisit":"if contributor activity grows"}]}')
+    expect(t[0]?.revisit).toBe('if contributor activity grows')
+  })
+})

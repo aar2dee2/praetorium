@@ -1,7 +1,7 @@
 // Tagging a prompt into requirements. Pure, so the live check (scripts/live-check.mjs)
 // sends the model exactly what the mod sends.
 
-export type Tagged = { title: string; quote: string; refines: string | null; conflicts?: string | null; conflict_reason?: string }
+export type Tagged = { title: string; quote: string; refines: string | null; conflicts?: string | null; conflict_reason?: string; revisit?: string | null }
 
 export const TAG_SYSTEM =
   'You split a developer\'s message to a coding agent into atomic, checkable requirements. ' +
@@ -11,6 +11,8 @@ export const TAG_SYSTEM =
   'A different feature is a new item (refines null), even when it is related or touches the same screen. When in doubt, refines is null. ' +
   'conflicts: the id of an existing requirement this message contradicts (asks for the opposite, or for something both cannot be true at once), else null; ' +
   'conflict_reason: one short sentence saying what clashes. A refinement that simply replaces the old wording is not a conflict. ' +
+  'revisit: when the user accepts something as good enough for now but names a time or condition to come back to it ("okay for now", "we can increase it later if…", "revisit when…"), that condition as a short phrase (e.g. "if contributor activity grows"); else null. Only when the message is about that very requirement; then set refines to it. ' +
+  'Different properties are different requirements: how to install something and what it depends on, or what a page shows and how it looks, are separate items even when they touch the same thing. ' +
   'Read the message in the light of the agent\'s previous reply when one is given: it is usually a reaction to it. ' +
   'A request phrased as a question ("how do I make it…", "can we…", "could you…", "why isn\'t X…") IS a requirement: state the outcome the user wants. ' +
   '"Can we not get X", "couldn\'t we X", "why not X" and "shouldn\'t it X" ask FOR X: the title is X, never its opposite. ' +
@@ -19,6 +21,7 @@ export const TAG_SYSTEM =
   'Examples. "Can we not show it in a separate window?" → [{"title":"Show it in a separate window"}]. ' +
   '"Why not keep the old colours?" → [{"title":"Keep the old colours"}]. ' +
   '"What does this cost per request?" → []. "How does the audit decide what is verified?" → []. ' +
+  'With R12 "Install by pasting a few lines": "can we have a setup without node?" → [{"title":"Remove the Node dependency","refines":null}] (a new requirement, not a refinement of R12). ' +
   'Reply {"items":[]} when there is no requirement.'
 
 // `lastReply` is the agent's previous answer: the message is often a reaction to it, and

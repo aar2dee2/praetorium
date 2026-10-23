@@ -27,7 +27,7 @@
 <text x="284.2" y="94.5" fill="#818cf8" xml:space="preserve">› </text>
 <text x="300.6" y="94.5" fill="#6b7280" xml:space="preserve">R1 </text>
 <text x="325.2" y="94.5" fill="#34d399" xml:space="preserve"> Verified                                   </text>
-<text x="702.4" y="94.5" fill="#6b7280" xml:space="preserve">10:52 </text>
+<text x="702.4" y="94.5" fill="#6b7280" xml:space="preserve">11:22 </text>
 <text x="751.6" y="94.5" fill="#fbbf24" xml:space="preserve"> Found                         </text>
 <text x="1005.8" y="94.5" fill="#6b7280" xml:space="preserve">key events  v to switch                                                                      </text>
 <rect x="30.0" y="99" width="229.6" height="17" fill="#1c2027"/>
@@ -36,11 +36,11 @@
 <text x="46.4" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Improve search results UI</text>
 <text x="317.0" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Show title, source and date on each result</text>
 <text x="661.4" y="111.5" fill="#e6e8eb" xml:space="preserve">       The search API returns dates in    </text>
-<text x="1022.2" y="111.5" fill="#6b7280" xml:space="preserve">11:02 </text>
+<text x="1022.2" y="111.5" fill="#6b7280" xml:space="preserve">11:32 </text>
 <text x="1071.4" y="111.5" fill="#818cf8" xml:space="preserve">Code change </text>
 <text x="1169.8" y="111.5" fill="#e6e8eb" xml:space="preserve">Edited highlight.ts</text>
 <text x="1325.6" y="111.5" fill="#818cf8" xml:space="preserve">  runn…   </text>
-<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">10:14 Asked                                 </text>
+<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">10:44 Asked                                 </text>
 <rect x="30.0" y="116" width="229.6" height="17" fill="#1c2027"/>
 <rect x="325.2" y="116" width="90.2" height="17" fill="#342f1d"/>
 <rect x="423.6" y="116" width="82.0" height="17" fill="#342428"/>
@@ -50,13 +50,13 @@
 <text x="325.2" y="128.5" fill="#fbbf24" xml:space="preserve"> Re-verify </text>
 <text x="423.6" y="128.5" fill="#f87171" xml:space="preserve"> Conflict                       </text>
 <text x="686.0" y="128.5" fill="#e6e8eb" xml:space="preserve">    UTC, so results near midnight      </text>
-<text x="1022.2" y="128.5" fill="#6b7280" xml:space="preserve">10:57 </text>
+<text x="1022.2" y="128.5" fill="#6b7280" xml:space="preserve">11:27 </text>
 <text x="1071.4" y="128.5" fill="#fbbf24" xml:space="preserve">Test </text>
 <text x="1112.4" y="128.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result           </text>
 <text x="1407.6" y="128.5" fill="#a0a6b0" xml:space="preserve">  “Show title, source, date”                </text>
 <text x="30.0" y="145.5" fill="#34d399" xml:space="preserve">○ </text>
 <text x="46.4" y="145.5" fill="#e6e8eb" xml:space="preserve">Fix newsletter unsubscribe       Keep the existing tag colours                    show the wrong day.                </text>
-<text x="1022.2" y="145.5" fill="#6b7280" xml:space="preserve">10:51 </text>
+<text x="1022.2" y="145.5" fill="#6b7280" xml:space="preserve">11:21 </text>
 <text x="1071.4" y="145.5" fill="#818cf8" xml:space="preserve">Code change </text>
 <text x="1169.8" y="145.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx                                                  </text>
 <rect x="325.2" y="150" width="164.0" height="17" fill="#342f1d"/>
@@ -64,16 +64,16 @@
 <text x="30.0" y="162.5" fill="#e6e8eb" xml:space="preserve">  bug                          </text>
 <text x="300.6" y="162.5" fill="#6b7280" xml:space="preserve">R3 </text>
 <text x="325.2" y="162.5" fill="#fbbf24" xml:space="preserve"> Done, not verified                         </text>
-<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">10:44 </text>
+<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">11:14 </text>
 <text x="751.6" y="162.5" fill="#f87171" xml:space="preserve"> Failed                        </text>
-<text x="1022.2" y="162.5" fill="#6b7280" xml:space="preserve">10:44 </text>
+<text x="1022.2" y="162.5" fill="#6b7280" xml:space="preserve">11:14 </text>
 <text x="1071.4" y="162.5" fill="#fbbf24" xml:space="preserve">Test </text>
 <text x="1112.4" y="162.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result</text>
 <text x="1317.4" y="162.5" fill="#f87171" xml:space="preserve">  failed   </text>
 <text x="1407.6" y="162.5" fill="#6b7280" xml:space="preserve">In the plan                                 </text>
 <text x="46.4" y="179.5" fill="#34d399" xml:space="preserve">1/1 verified                 </text>
 <text x="284.2" y="179.5" fill="#e6e8eb" xml:space="preserve">    Show a one or two line summary                   Bash: 2 tests failed in            </text>
-<text x="1022.2" y="179.5" fill="#6b7280" xml:space="preserve">10:36 </text>
+<text x="1022.2" y="179.5" fill="#6b7280" xml:space="preserve">11:06 </text>
 <text x="1071.4" y="179.5" fill="#818cf8" xml:space="preserve">Agent </text>
 <text x="1120.6" y="179.5" fill="#e6e8eb" xml:space="preserve">I've replaced the tag styling w…   </text>
 <text x="1407.6" y="179.5" fill="#a0a6b0" xml:space="preserve">  ✓ [R1] Title, source and date             </text>
@@ -81,12 +81,12 @@
 <text x="300.6" y="196.5" fill="#6b7280" xml:space="preserve">R4 </text>
 <text x="325.2" y="196.5" fill="#818cf8" xml:space="preserve"> In progress                                </text>
 <text x="686.0" y="196.5" fill="#e6e8eb" xml:space="preserve">    search-result.test.tsx (tag        </text>
-<text x="1022.2" y="196.5" fill="#6b7280" xml:space="preserve">10:35 </text>
+<text x="1022.2" y="196.5" fill="#6b7280" xml:space="preserve">11:05 </text>
 <text x="1071.4" y="196.5" fill="#818cf8" xml:space="preserve">Code change </text>
 <text x="1169.8" y="196.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx                                                  </text>
 <text x="30.0" y="213.5" fill="#6b7280" xml:space="preserve">acme-api                       </text>
 <text x="284.2" y="213.5" fill="#e6e8eb" xml:space="preserve">    Highlight matched keywords                       colour snapshot).                  </text>
-<text x="1022.2" y="213.5" fill="#6b7280" xml:space="preserve">10:20 </text>
+<text x="1022.2" y="213.5" fill="#6b7280" xml:space="preserve">10:50 </text>
 <text x="1071.4" y="213.5" fill="#818cf8" xml:space="preserve">Plan </text>
 <text x="1112.4" y="213.5" fill="#e6e8eb" xml:space="preserve">Plan updated                        </text>
 <text x="1407.6" y="213.5" fill="#34d399" xml:space="preserve">Passed: npm test -- search-result           </text>
@@ -95,7 +95,7 @@
 <text x="30.0" y="230.5" fill="#34d399" xml:space="preserve">○ </text>
 <text x="46.4" y="230.5" fill="#e6e8eb" xml:space="preserve">Add country filter to news   </text>
 <text x="300.6" y="230.5" fill="#6b7280" xml:space="preserve">R5  Not started                                </text>
-<text x="702.4" y="230.5" fill="#6b7280" xml:space="preserve">10:36 </text>
+<text x="702.4" y="230.5" fill="#6b7280" xml:space="preserve">11:06 </text>
 <text x="751.6" y="230.5" fill="#f87171" xml:space="preserve"> Conflict </text>
 <text x="833.6" y="230.5" fill="#6b7280" xml:space="preserve"> R2                                                                                                               </text>
 <text x="30.0" y="247.5" fill="#e6e8eb" xml:space="preserve">  page                             Make the layout more compact                     The agent's work goes against                                                       </text>

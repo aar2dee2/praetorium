@@ -54,16 +54,21 @@ async function tagging() {
   ]
   // Refinement and conflict links, judged on the items rather than the titles.
   const existing = [{ id: 'R5', title: 'Use Telborg brand colours from the telborg_news repo' }, { id: 'R12', title: 'Install by pasting a few lines, like the gstack installer' },
-    { id: 'R15', title: 'Support Windows and Mac terminal apps' }, { id: 'R25', title: 'Add search and filters for requirements' }]
+    { id: 'R15', title: 'Support Windows and Mac terminal apps' }, { id: 'R25', title: 'Add search and filters for requirements' },
+    { id: 'R44', title: 'Run periodic audits of the repo from cloud sessions' }, { id: 'R2', title: 'Keep the existing tag colours' }]
   const links = [
     ['the interface goes between light and dark mode as I toggle sessions', items => items.length >= 1 && items.every(i => !i.refines), 'a new ask about the same screen is not a refinement of R5'],
     ['can we have a setup without node - users might not have node installed', items => items.length >= 1 && items.every(i => !i.refines), 'a new ask is not a refinement of R12 or R15'],
-    ['use the lime from the telborg site for verified, not the darker olive', items => items.some(i => i.refines === 'R5'), 'a real correction refines R5'],
-    ['actually, drop the search box from the requirements list, filters are enough', items => items.some(i => i.conflicts === 'R25'), 'a contradiction is flagged as a conflict with R25'],
+    // Refinement and conflict sit close together; either keeps the link (a conflict just asks the user which wins).
+    ['use the lime from the telborg site for verified, not the darker olive', items => items.some(i => i.refines === 'R5' || i.conflicts === 'R5'), 'a correction stays linked to R5'],
+    // A deliberate "actually…" may read as a refinement (the newer wording wins) or a conflict; either way it must stay linked to R25.
+    ['actually, drop the search box from the requirements list, filters are enough', items => items.some(i => i.conflicts === 'R25' || i.refines === 'R25'), 'a reversal stays linked to R25, never a silent new item'],
+    ['give every tag a fresh colour from the new palette', items => items.some(i => i.conflicts === 'R2'), 'an unacknowledged clash with R2 is flagged as a conflict'],
+    ['twice a week is okay for now. if we get a lot of activity from contributors we can increase the frequency', items => items.some(i => i.refines === 'R44' && i.revisit), '"okay for now, increase later if…" marks R44 to revisit'],
   ]
   for (const [message, ok, label] of links) {
     const items = parseTagged(haiku(TAG_SYSTEM, tagPrompt(existing, message)))
-    result(ok(items), label, items.map(i => `${i.title}${i.refines ? ` (refines ${i.refines})` : ''}${i.conflicts ? ` (conflicts ${i.conflicts})` : ''}`).join(' | ') || '(none)')
+    result(ok(items), label, items.map(i => `${i.title}${i.refines ? ` (refines ${i.refines})` : ''}${i.conflicts ? ` (conflicts ${i.conflicts})` : ''}${i.revisit ? ` (revisit ${i.revisit})` : ''}`).join(' | ') || '(none)')
   }
   for (const [message, ok, label, existing = [], lastReply = ''] of cases) {
     const titles = parseTagged(haiku(TAG_SYSTEM, tagPrompt(existing, message, lastReply))).map(i => i.title)

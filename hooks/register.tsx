@@ -69,6 +69,7 @@ const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
   blocked: { label: 'Blocked', tone: 'danger' },
   needs_clarification: { label: 'Needs clarification', tone: 'warn' },
   deferred: { label: 'Deferred', tone: 'muted' },
+  revisit: { label: 'Done for now · revisit', tone: 'done' },
 }
 
 const KIND: Record<EventKind, { label: string; tone: Tone }> = {
@@ -112,7 +113,7 @@ const nextId = (reqs: Requirement[]) => `R${reqs.length + 1}`
 // The app lists sessions without a project folder under "This computer".
 const projectName = (dir: string) => (/[\\/]scratch-workspaces[\\/]/.test(dir) ? 'This computer' : base(dir))
 const uid = () => `${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-const isDone = (r: Requirement) => (r.status === 'verified' && !r.needsReverify) || r.status === 'deferred'
+const isDone = (r: Requirement) => (r.status === 'verified' && !r.needsReverify) || r.status === 'deferred' || r.status === 'revisit'
 
 // The terminal window reads this file; it holds nothing the session state doesn't.
 async function mirror($: $T) {
@@ -208,6 +209,12 @@ async function capture($: $T, text: string): Promise<string[]> {
       }
       const target = t.refines ? out.find(r => r.id === t.refines) : undefined
       const version = { at: now(), text: t.quote || t.title, kind: target ? 'refinement' : 'original', by: 'you' } as const
+      if (target && t.revisit) {
+        // "Good enough for now, revisit if…": done, with your condition kept.
+        out = out.map(r => (r.id === target.id ? { ...r, history: [...r.history, version], status: 'revisit', revisit: t.revisit ?? '', needsReverify: undefined } : r))
+        touched.push(`${target.id} (done for now; revisit ${t.revisit}): ${t.title}`)
+        continue
+      }
       if (target) {
         const wasDone = target.status === 'implemented' || target.status === 'verified'
         out = out.map(r =>
@@ -923,7 +930,7 @@ const TOOL_SCHEMA = {
   properties: {
     action: { type: 'string', enum: ['update', 'add', 'detach'] },
     id: { type: 'string' },
-    status: { type: 'string', enum: ['in_progress', 'implemented', 'verified', 'blocked', 'needs_clarification'] },
+    status: { type: 'string', enum: ['in_progress', 'implemented', 'verified', 'blocked', 'needs_clarification', 'revisit'] },
     test_command: { type: 'string' },
     note: { type: 'string' },
     title: { type: 'string', description: 'add: the new requirement' },
@@ -971,9 +978,12 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
       reply = `${req.id} recorded as implemented, NOT verified: no passing test, build or check command matching "${s('test_command')}" ran after the last edit. Run one, then update again.`
     }
   }
-  if (s('note')) evidence.push({ kind: 'note', at: now(), text: s('note') })
+  if (status === 'revisit' && !s('note')) return `${req.id}: "revisit" needs a note saying when or why to come back to it.`
+  if (s('note') && status !== 'revisit') evidence.push({ kind: 'note', at: now(), text: s('note') })
   await update($, reqsA, list =>
-    list.map(r => (r.id === req.id ? { ...r, status, evidence, needsReverify: status === 'verified' ? false : r.needsReverify } : r)),
+    list.map(r => (r.id === req.id
+      ? { ...r, status, evidence, needsReverify: status === 'verified' ? false : r.needsReverify, revisit: status === 'revisit' ? s('note') : undefined }
+      : r)),
   )
   await save($)
   return reply
@@ -1253,6 +1263,7 @@ export const register: Register = on => {
         </Box>
         {view.selectedReq === r.id && (
           <Box flexDirection="column" paddingLeft={2} paddingY={1} borderStyle="single" borderColor={p.border}>
+            {r.status === 'revisit' && r.revisit && <Text color={p.text2} wrap="wrap">Revisit {r.revisit}</Text>}
             {r.conflict && (
               <Box flexDirection="column" paddingBottom={1}>
                 <Text color={p.danger} wrap="wrap">Conflict ({r.conflict.source === 'agent' ? "the agent's work" : 'a later message'}): {r.conflict.reason}</Text>
@@ -1502,6 +1513,12 @@ export const register: Register = on => {
             </Text>
           ))}
         </Box>
+        {live.some(r => r.status === 'revisit') && (
+          <Box flexDirection="column" paddingBottom={1}>
+            <Text color={p.text2} bold>To revisit</Text>
+            {live.filter(r => r.status === 'revisit').map(r => <Text key={`rv-${r.id}`} color={p.text3} wrap="wrap">{r.id} {r.title}: {r.revisit}</Text>)}
+          </Box>
+        )}
         {open.length > 0 && (
           <Button
             key="close-gaps"

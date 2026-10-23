@@ -5,6 +5,7 @@ export type ReqStatus =
   | 'verified'
   | 'blocked'
   | 'needs_clarification'
+  | 'revisit'
   | 'deferred'
 
 export type Evidence = {
@@ -31,6 +32,8 @@ export type Requirement = {
   needsReverify?: boolean
   // Set when a later message or the agent's work contradicts this requirement.
   conflict?: { reason: string; at: number; source: 'you' | 'agent' }
+  // Done for now: when or why to come back to it, in your words (status 'revisit').
+  revisit?: string
 }
 
 // Things worth acting on that are easy to miss in the chat: a tool call that failed or was
