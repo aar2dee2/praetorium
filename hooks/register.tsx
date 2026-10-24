@@ -1131,7 +1131,7 @@ const SIDE_BY_SIDE_AT = 160
 
 async function openPane($: $T): Promise<string> {
   const width = (await $.store.get('width').catch(() => undefined)) === 'wide' ? 'wide' : 'narrow'
-  await $.ui.open({ id: PANE, title: 'Ledger', columns: width === 'wide' ? WIDE_COLUMNS : NARROW_COLUMNS })
+  await $.ui.open({ id: PANE, title: 'Principia', columns: width === 'wide' ? WIDE_COLUMNS : NARROW_COLUMNS })
   return width
 }
 
@@ -1220,7 +1220,7 @@ export const register: Register = on => {
     if (arg === 'refresh') return { text: await refreshCommand($).catch(err => `Could not refresh: ${err instanceof Error ? err.message : String(err)}`) }
     if (arg === 'wide' || arg === 'narrow') await $.store.set('width', arg)
     const width = await openPane($)
-    return { text: `Ledger opened (${width}). /ledger window opens it in your terminal; /ledger theme changes the colours; /ledger wide or /ledger narrow resizes this pane; dragging the pane edge also works.` }
+    return { text: `Principia opened (${width}). /ledger window opens it in your terminal; /ledger theme changes the colours; /ledger wide or /ledger narrow resizes this pane; dragging the pane edge also works.` }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -1400,7 +1400,7 @@ export const register: Register = on => {
 
     const header = (
       <Box flexDirection="column" paddingBottom={1}>
-        <Text color={p.text} bold>Ledger</Text>
+        <Text color={p.text} bold>Principia</Text>
         <Text color={p.text2}>
           {live.length} requirements · <Text color={p.done}>{verified} verified</Text> · {live.length - verified} open
         </Text>

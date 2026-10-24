@@ -4,7 +4,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'ledger',
   viewport: { columns: 80, rows: 50 },
-  props: { title: 'Ledger', isFocused: false, bodyColumns: 76, placement: 'dock' },
+  props: { title: 'Principia', isFocused: false, bodyColumns: 76, placement: 'dock' },
 } as const
 
 describe('ledger', () => {
@@ -36,7 +36,7 @@ describe('ledger wide', () => {
       const ui = await $.ui.mount({
         plugin: 'principia', surface, component: 'Pane', requestId: 'ledger',
         viewport: { columns: 200, rows: 50 },
-        props: { title: 'Ledger', isFocused: false, bodyColumns: 196, placement: 'dock' },
+        props: { title: 'Principia', isFocused: false, bodyColumns: 196, placement: 'dock' },
       } as never)
       expect(await ui.find({ type: 'Text', text: /Completion audit/ })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /Signals \(0\)/ })).toBeDefined()
