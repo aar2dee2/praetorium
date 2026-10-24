@@ -1,13 +1,13 @@
 // The standalone praetorium program published with this version: written by scripts/build.ts
 // when a release is cut, and checked against before anything downloaded is run.
 export const RELEASE: { version: string; repo: string; sha256: Record<string, string> } = {
-  version: '0.3.7',
+  version: '0.3.8',
   repo: 'aar2dee2/praetorium',
   sha256: {
-    "praetorium-darwin-arm64": "75c15b52b78626538091bf267f52e3f3f32e626db8bea423afa19d2db11d3a9f",
-    "praetorium-darwin-x64": "a2743d62f0483d102e63a35105199816fcd4a93879ac12f9494fc37f1d7e7808",
-    "praetorium-linux-x64": "5186b45c3a1c139c6907d1b1ca1761248a3d4cab717d04a5b3b9c5d37ff5044e",
-    "praetorium-linux-arm64": "4ee6c0e4187a659313d82aa74085a7532816913c86954f433d54e481caefbaf6",
-    "praetorium-windows-x64.exe": "7cd3fd270a9987df47a20b62c1c2776ca6d90abbab4ee9975bb23d007b15c3ad"
+    "praetorium-darwin-arm64": "37f6a550d56f6b1262bb2aa1c4d447620779d015e7e657ba66f452b091b777a9",
+    "praetorium-darwin-x64": "052eb0250a7f4f9aa5a62489162b95b240f221ed86321de92e34d56abae5b329",
+    "praetorium-linux-x64": "98c1508ab473e31fc49bf8e2d5dd64d767a7bfffc99d14ffc9641a7dde354f40",
+    "praetorium-linux-arm64": "9cfa81a4e6234edf992f075713fb3492bb17d8262376ab375ebf2dc3340f898f",
+    "praetorium-windows-x64.exe": "4386be843311e855836ff1c851d4d594eaeeb86260768d83626f6e733551b2c0"
   },
 }
