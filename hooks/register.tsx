@@ -20,7 +20,7 @@ import type {
 } from '../types'
 import { REVIEW_SYSTEM, TAG_SYSTEM, buildLedger, judgeStatuses, parseReview, parseTagged, reviewPrompt, tagPrompt, turnsAsConversation } from './tagging'
 import type { Complete, LedgerItem, PastPrompt, Progress, Tagged, Turn } from './tagging'
-import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, linker, planFrom, previewUrls } from './work'
+import { PLAN_TOOLS, REQ_FILTERS, failureText, filterReqs, gapOf, isSecretPath, linker, planFrom, previewUrls, trimEvents } from './work'
 import type { ReqFilterName } from './work'
 import { RELEASE } from './release'
 import { EDITORS, LINUX, MAC, WINDOWS, base, firstLine, join, launchCommand, programName } from './platform'
@@ -68,10 +68,10 @@ const CONSOLIDATE_EVERY = 6
 const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
   captured: { label: 'Not started', tone: 'muted' },
   in_progress: { label: 'In progress', tone: 'active' },
-  implemented: { label: 'Implemented · not verified', tone: 'warn' },
+  implemented: { label: 'Done, not verified', tone: 'warn' },
   verified: { label: 'Verified', tone: 'done' },
   blocked: { label: 'Blocked', tone: 'danger' },
-  needs_clarification: { label: 'Needs clarification', tone: 'warn' },
+  needs_clarification: { label: 'Needs you', tone: 'warn' },
   deferred: { label: 'Deferred', tone: 'muted' },
   revisit: { label: 'Done for now · revisit', tone: 'done' },
 }
@@ -142,7 +142,7 @@ async function mirror($: $T) {
     }
     await $.fs.write(stateFile(), JSON.stringify({
       sessionId, project, title, hasEnded, entry, drawn, turns: turns.slice(-400),
-      reqs, replies, events: events.slice(-200), signals: signals.slice(-100), plan, previews,
+      reqs, replies, events: trimEvents(events), signals: signals.slice(-100), plan, previews,
       isWorking: Boolean(turnId) && !hasEnded, editors: plat.editors, snapDir: join(plat.data, 'snapshots'), theme, dark: view.dark, at: now(),
       transcriptsAllowed: await transcriptsAllowed($),
     }))
@@ -169,7 +169,7 @@ async function save($: $T) {
 
 async function pushEvent($: $T, ev: ActivityEvent) {
   const linked = turnReqs.size && !ev.reqIds ? { ...ev, reqIds: [...turnReqs] } : ev
-  await update($, eventsA, list => [...list, linked].slice(-300))
+  await update($, eventsA, list => trimEvents([...list, linked]))
   await mirror($)
 }
 
@@ -904,11 +904,11 @@ async function ledgerOf($: $T, past: PastSession): Promise<{ reqs: Requirement[]
     if (ev.state === 'running') ev.state = t.isError ? 'failed' : 'ok'
     events.push(ev)
   }
-  for (const [i, m] of past.replies.slice(-40).entries()) {
+  for (const [i, m] of past.replies.slice(-200).entries()) {
     events.push({ id: `m-${past.sessionId}-${i}`, kind: 'message', at: m.at, title: clip(m.text.split('\n')[0] ?? '', 90), detail: m.text })
   }
   events.sort((a, b) => a.at - b.at)
-  return { reqs, events: events.slice(-200) }
+  return { reqs, events: trimEvents(events) }
 }
 
 async function importSessions($: $T, days: number, again = false): Promise<string> {
@@ -959,7 +959,7 @@ async function backfillSelf($: $T) {
     const { reqs, events } = await ledgerOf($, past)
     if ((await read($, reqsA)).length) return // the person sent a prompt meanwhile; keep its ids
     await update($, reqsA, () => reqs)
-    await update($, eventsA, list => [...events, ...list].slice(-300))
+    await update($, eventsA, list => trimEvents([...events, ...list]))
     if (!(await read($, titleA))) await update($, titleA, () => past.title || clip(past.prompts[0]?.text ?? '', 70))
     await save($)
   } catch {
@@ -1103,7 +1103,7 @@ async function ledgerTool($: $T, a: Record<string, unknown>): Promise<string> {
       evidence.push({ kind: 'test', at: now(), text: pass.detail ?? pass.title, eventId: pass.id })
     } else {
       status = 'implemented'
-      reply = `${req.id} recorded as implemented, NOT verified: no passing test, build or check command matching "${s('test_command')}" ran after the last edit. Run one, then update again.`
+      reply = `${req.id} recorded as done but NOT verified: no passing test, build or check command matching "${s('test_command')}" ran after the last edit. Run one, then update again.`
     }
   }
   if (status === 'revisit' && !s('note')) return `${req.id}: "revisit" needs a note saying when or why to come back to it.`
@@ -1180,7 +1180,7 @@ export const register: Register = on => {
         const known = new Set((await read($, eventsA)).map(ev => ev.id))
         await update($, reqsA, () => kept.reqs ?? [])
         await update($, repliesA, list => (list.length ? list : kept.replies ?? []))
-        await update($, eventsA, list => [...(kept.events ?? []).filter(ev => !known.has(ev.id)), ...list].sort((a, b) => a.at - b.at).slice(-300))
+        await update($, eventsA, list => trimEvents([...(kept.events ?? []).filter(ev => !known.has(ev.id)), ...list].sort((a, b) => a.at - b.at)))
         if (kept.title && !(await read($, titleA))) await update($, titleA, () => kept.title ?? '')
         if (kept.signals?.length) await update($, signalsA, list => (list.length ? list : kept.signals ?? []))
         if (kept.plan?.length) await update($, planA, list => (list.length ? list : kept.plan ?? []))
@@ -1369,8 +1369,8 @@ export const register: Register = on => {
     const { Box, Text, Button, Input, Select, Link } = $.ui.resolve(e)
     // A drawing can't write state, so the first one records itself just after.
     if (!(await read($, drawnA))) $.clock.after(0, () => void update($, drawnA, () => true).then(() => mirror($)).catch(() => undefined))
-    const [reqs, events, replies, view, signals, plan, previews] = await Promise.all([
-      read($, reqsA), read($, eventsA), read($, repliesA), read($, viewA), read($, signalsA), read($, planA), read($, previewsA),
+    const [reqs, events, replies, view, signals, plan, previews, turns] = await Promise.all([
+      read($, reqsA), read($, eventsA), read($, repliesA), read($, viewA), read($, signalsA), read($, planA), read($, previewsA), read($, turnsA),
     ])
     const openSignals = signals.filter(x => !x.dismissed)
     const p = palette(await read($, themeA), view.dark)
@@ -1407,11 +1407,11 @@ export const register: Register = on => {
       <Box key={`r-${r.id}`} flexDirection="column" paddingY={0}>
         <Box flexDirection="row" gap={1}>
           <Button key={`rb-${r.id}`} label={r.id} plain onPress={() => setView({ selectedReq: view.selectedReq === r.id ? undefined : r.id })} />
-          {chip(r.needsReverify ? 'Needs re-verification' : STATUS[r.status].label, r.needsReverify ? 'warn' : STATUS[r.status].tone)}
-          {r.conflict && chip('Conflict', 'danger')}
+          <Text color={p.text} bold={view.selectedReq === r.id} wrap="wrap">{r.title}</Text>
         </Box>
-        <Box paddingLeft={2}>
-          <Text color={p.text} wrap="wrap">{r.title}</Text>
+        <Box flexDirection="row" gap={1} paddingLeft={2}>
+          <Text color={r.needsReverify ? p.warn : toneFg(p, STATUS[r.status].tone)}>{r.needsReverify ? 'Needs re-verification' : STATUS[r.status].label}</Text>
+          {r.conflict && chip('Conflict', 'danger')}
         </Box>
         {view.selectedReq === r.id && (
           <Box flexDirection="column" paddingLeft={2} paddingY={1} borderStyle="single" borderColor={p.border}>
@@ -1560,7 +1560,7 @@ export const register: Register = on => {
     // ----- activity -----
     // An open requirement narrows the activity to its own.
     const forReq = view.selectedReq
-    const linkOf = linker(reqs)
+    const linkOf = linker(reqs, turns.map(t => t.at))
     const shown = events.filter(ev => {
       if (forReq && !linkOf(ev).includes(forReq)) return false
       const f: Filter = view.filter

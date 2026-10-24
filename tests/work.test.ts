@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Requirement } from '../types'
-import { filterReqs, gapOf, linkStep, linker, planFrom, previewUrls } from '../hooks/work'
+import { filterReqs, gapOf, linkStep, linker, planFrom, previewUrls, trimEvents } from '../hooks/work'
 import { parseReview, parseTagged } from '../hooks/tagging'
 
 const req = (id: string, title: string, extra: Partial<Requirement> = {}): Requirement => ({
@@ -120,8 +120,8 @@ describe('activity per requirement', () => {
     const link = linker(reqs, [100, 250, 300, 500])
     expect(link(ev(50))).toEqual([])
     expect(link(ev(150))).toEqual(['R1', 'R2'])
-    // 250 was a message that asked nothing new: its turn is linked to nothing.
-    expect(link(ev(260))).toEqual([])
+    // 250 was a message that asked nothing new ("go ahead"): its turn carries on with the last ask.
+    expect(link(ev(260))).toEqual(['R1', 'R2'])
     expect(link(ev(350))).toEqual(['R2'])
     expect(link(ev(600))).toEqual(['R3'])
     // Requirements from one message are saved milliseconds apart; they're still one turn.
@@ -129,5 +129,21 @@ describe('activity per requirement', () => {
     expect(split(ev(2000))).toEqual(['R7', 'R8'])
     // Events that carry their own links keep them.
     expect(link(ev(600, ['R1']))).toEqual(['R1'])
+  })
+})
+
+describe('how much activity is kept', () => {
+  test('old events are kept lean rather than dropped', () => {
+    const ev = (i: number) => ({ id: String(i), kind: 'command' as const, at: i, title: `t${i}`, detail: 'x'.repeat(500), diff: 'd' })
+    const list = Array.from({ length: 30 }, (_, i) => ev(i))
+    const kept = trimEvents(list, 20, 5)
+    expect(kept.map(e => e.id)).toEqual(list.slice(-20).map(e => e.id))
+    expect(kept[0].detail?.length).toBe(160)
+    expect('diff' in kept[0]).toBe(false)
+    expect(kept.at(-1)?.detail?.length).toBe(500)
+    expect(kept.at(-1)?.diff).toBe('d')
+    // Within the full window nothing changes, and the same array comes back.
+    const small = list.slice(0, 5)
+    expect(trimEvents(small, 20, 5)).toBe(small)
   })
 })

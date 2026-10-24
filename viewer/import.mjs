@@ -105,8 +105,9 @@ async function readTranscript(file) {
     }
   }
   // Every prompt and reply, from the first: early requirements are the ones most easily lost.
-  // Only tool calls are capped (they feed the activity list, not requirements).
-  out.tools = out.tools.slice(-250)
+  // Tool calls feed the activity list; enough are kept for a requirement from the first hour
+  // to still show its work a day later.
+  out.tools = out.tools.slice(-1500)
   if (!startedBySession) out.prompts = out.prompts.filter(p => !p.fromSession)
   return out
 }

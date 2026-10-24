@@ -270,8 +270,9 @@ function reqLines(w) {
   reqs.forEach((r, i) => {
     const [label, t] = r.needsReverify ? ['Re-verify', 'warn'] : STATUS[r.status]
     const isSel = focus === 'reqs' && i === sel.reqs
-    lines.push({ sel: isSel, line: [seg(isSel ? '› ' : '  ', P.active), seg(`${r.id} `, P.text3), chip(label, t), ...(r.conflict ? [seg(' '), chip('Conflict', 'danger')] : [])] })
-    for (const row of wrapText(r.title, w - 4)) lines.push({ sel: isSel, line: [seg('    '), seg(row, P.text, undefined, isSel)] })
+    const head = `${r.id} `
+    wrapText(r.title, w - 2 - head.length).forEach((row, j) => lines.push({ sel: isSel, line: [j ? seg('  ' + ' '.repeat(head.length)) : seg(isSel ? '› ' : '  ', P.active), ...(j ? [] : [seg(head, P.text3)]), seg(row, P.text, undefined, isSel)] }))
+    lines.push({ sel: isSel, line: [seg('  ' + ' '.repeat(head.length)), seg(label, tone(t)), ...(r.conflict ? [seg('  '), chip('Conflict', 'danger')] : [])] })
   })
   return lines
 }
@@ -380,7 +381,7 @@ function detailLines(w) {
     const r = shownReqs()[sel.reqs]
     if (r) {
       const [label, t] = r.needsReverify ? ['Needs re-verification', 'warn'] : STATUS[r.status]
-      lines.push([seg(`${r.id} `, P.text3), chip(label, t)], ...wrap(r.title, w, P.text), [])
+      lines.push(...wrap(r.title, w, P.text), [seg(`${r.id}  `, P.text3), chip(label, t)], [])
       if (r.status === 'revisit' && r.revisit) lines.push(...wrap(`Revisit ${r.revisit}`, w, P.text2), [])
       if (r.conflict) lines.push(...wrap(`Conflict (${r.conflict.source === 'agent' ? "the agent's work" : 'a later message'}): ${r.conflict.reason}`, w, P.danger), [key('x'), seg(' mark resolved', P.text3)], [])
       for (const h of r.history) {
@@ -521,7 +522,7 @@ function clampSel() {
 
 function load() {
   S = sessions.get(cur)?.state ?? EMPTY
-  linkOf = linker(S.reqs, S.asks)
+  linkOf = linker(S.reqs, S.asks ?? (S.turns ?? []).map(t => t.at))
   clampSel()
   render()
 }

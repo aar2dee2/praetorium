@@ -109,12 +109,33 @@ export function gapOf(r: Requirement, plan: PlanStep[] = []): string {
 const SECRET = /(^|[\\/])(\.env(\..*)?|\.npmrc|\.netrc|\.pgpass|id_(rsa|ed25519|ecdsa)[^\\/]*|[^\\/]*\.(pem|key|p12|pfx)|credentials[^\\/]*|secrets?\.[a-z]+)$/i
 export const isSecretPath = (file: string) => SECRET.test(file)
 
+// ---------- how much activity is kept ----------
+
+// Activity is kept per session, not per turn, so a requirement from the first hour still has
+// its edits and tests a day later. Only the newest events keep their full text (commands,
+// plans, the agent's messages); older ones keep what the list and the links need.
+export const EVENTS_MAX = 1500
+export const EVENTS_FULL = 200
+const LEAN_DETAIL = 160
+
+export function trimEvents(list: ActivityEvent[], max = EVENTS_MAX, full = EVENTS_FULL): ActivityEvent[] {
+  const kept = list.length > max ? list.slice(-max) : list
+  const cut = Math.max(0, kept.length - full)
+  if (!cut) return kept
+  return kept.map((ev, i) => {
+    if (i >= cut) return ev
+    const { diff: _diff, ...rest } = ev
+    return rest.detail && rest.detail.length > LEAN_DETAIL ? { ...rest, detail: `${rest.detail.slice(0, LEAN_DETAIL - 1)}…` } : rest
+  })
+}
+
 // ---------- which requirements an event was for ----------
 
 // Events carry the requirements their turn worked on. Ones recorded before that (or imported)
 // are placed by time: an event belongs to the turn your latest message before it started, and
 // that turn worked on what the message asked for or refined. `asks` are the times of all your
-// messages, when known, so a turn that only asked a question claims nothing.
+// messages, when known. A message that asked nothing new ("yes, go ahead", a question) carries
+// on with what the message before it asked: the work it starts is still for those requirements.
 export function linker(reqs: Requirement[], asks: number[] = []): (ev: ActivityEvent) => string[] {
   // Requirements captured from one message are saved a few milliseconds apart: times within a
   // few seconds of each other (and not split by another message) are one message.
@@ -128,6 +149,12 @@ export function linker(reqs: Requirement[], asks: number[] = []): (ev: ActivityE
     if (m.at - start > 5000 || (!m.id && m.at !== start)) start = m.at
     const ids = byTime.get(start) ?? []
     byTime.set(start, m.id ? [...ids, m.id] : ids)
+  }
+  // A message with no requirement of its own continues the previous message's.
+  let carry: string[] = []
+  for (const [at, ids] of byTime) {
+    if (ids.length) carry = ids
+    else byTime.set(at, carry)
   }
   const starts = [...byTime.keys()]
   return ev => {

@@ -7,7 +7,6 @@
 <text x="784.4" y="26.5" fill="#6b7280" xml:space="preserve">   6 requirements · </text>
 <text x="948.4" y="26.5" fill="#34d399" xml:space="preserve">1 verified                                                                                          </text>
 <rect x="686.0" y="48" width="114.8" height="17" fill="#1c2027"/>
-<rect x="1432.2" y="48" width="82.0" height="17" fill="#18312e"/>
 <text x="30.0" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">SESSIONS  4</text>
 <text x="284.2" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">REQUIREMENTS  6</text>
 <text x="407.2" y="60.5" fill="#6b7280" xml:space="preserve">  All                             </text>
@@ -16,92 +15,93 @@
 <text x="899.2" y="60.5" fill="#6b7280" xml:space="preserve"> 3 Tests 2 </text>
 <text x="997.6" y="60.5" fill="#6b7280" xml:space="preserve"> 4 Prev…   </text>
 <text x="1087.8" y="60.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">SIGNALS  3</text>
-<text x="1169.8" y="60.5" fill="#6b7280" xml:space="preserve">  failed · blocked · foun…   R1 </text>
-<text x="1432.2" y="60.5" fill="#34d399" xml:space="preserve"> Verified                                </text>
-<text x="1407.6" y="77.5" fill="#e6e8eb" xml:space="preserve">Show title, source and date on each result  </text>
-<rect x="284.2" y="82" width="41.0" height="17" fill="#1c2027"/>
-<rect x="325.2" y="82" width="82.0" height="17" fill="#18312e"/>
-<rect x="407.2" y="82" width="254.2" height="17" fill="#1c2027"/>
+<text x="1169.8" y="60.5" fill="#6b7280" xml:space="preserve">  failed · blocked · foun…   </text>
+<text x="1407.6" y="60.5" fill="#e6e8eb" xml:space="preserve">Show title, source and date on each result  </text>
+<rect x="1440.4" y="65" width="82.0" height="17" fill="#18312e"/>
+<text x="1407.6" y="77.5" fill="#6b7280" xml:space="preserve">R1  </text>
+<text x="1440.4" y="77.5" fill="#34d399" xml:space="preserve"> Verified                               </text>
+<rect x="284.2" y="82" width="377.2" height="17" fill="#1c2027"/>
 <rect x="1153.4" y="82" width="57.4" height="17" fill="#342f1d"/>
 <text x="30.0" y="94.5" fill="#6b7280" xml:space="preserve">acme-web                       </text>
 <text x="284.2" y="94.5" fill="#818cf8" xml:space="preserve">› </text>
 <text x="300.6" y="94.5" fill="#6b7280" xml:space="preserve">R1 </text>
-<text x="325.2" y="94.5" fill="#34d399" xml:space="preserve"> Verified                                   </text>
+<text x="325.2" y="94.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Show title, source and date on each</text>
 <text x="686.0" y="94.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">for R1</text>
 <text x="735.2" y="94.5" fill="#6b7280" xml:space="preserve">  A all activity                           </text>
-<text x="1104.2" y="94.5" fill="#6b7280" xml:space="preserve">17:50 </text>
+<text x="1104.2" y="94.5" fill="#6b7280" xml:space="preserve">11:32 </text>
 <text x="1153.4" y="94.5" fill="#fbbf24" xml:space="preserve"> Found                                                                     </text>
 <rect x="30.0" y="99" width="229.6" height="17" fill="#1c2027"/>
 <rect x="284.2" y="99" width="377.2" height="17" fill="#1c2027"/>
 <text x="30.0" y="111.5" fill="#818cf8" xml:space="preserve">● </text>
 <text x="46.4" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Improve search results UI</text>
-<text x="317.0" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">Show title, source and date on each result</text>
-<text x="702.4" y="111.5" fill="#6b7280" xml:space="preserve">17:55 </text>
+<text x="325.2" y="111.5" fill="#e6e8eb" font-weight="700" xml:space="preserve">result</text>
+<text x="702.4" y="111.5" fill="#6b7280" xml:space="preserve">11:37 </text>
 <text x="751.6" y="111.5" fill="#fbbf24" xml:space="preserve">Test </text>
 <text x="792.6" y="111.5" fill="#e6e8eb" xml:space="preserve">npm test -- search-result               The search API returns dates in    </text>
-<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">17:12 Asked                                 </text>
+<text x="1407.6" y="111.5" fill="#6b7280" xml:space="preserve">10:54 Asked                                 </text>
 <rect x="30.0" y="116" width="229.6" height="17" fill="#1c2027"/>
-<rect x="325.2" y="116" width="90.2" height="17" fill="#342f1d"/>
-<rect x="423.6" y="116" width="82.0" height="17" fill="#342428"/>
+<rect x="284.2" y="116" width="377.2" height="17" fill="#1c2027"/>
 <text x="46.4" y="128.5" fill="#6b7280" xml:space="preserve">1/6 verified</text>
 <text x="144.8" y="128.5" fill="#fbbf24" xml:space="preserve"> · 3 signals     </text>
-<text x="300.6" y="128.5" fill="#6b7280" xml:space="preserve">R2 </text>
-<text x="325.2" y="128.5" fill="#fbbf24" xml:space="preserve"> Re-verify </text>
-<text x="423.6" y="128.5" fill="#f87171" xml:space="preserve"> Conflict                       </text>
-<text x="702.4" y="128.5" fill="#6b7280" xml:space="preserve">17:34 </text>
+<text x="325.2" y="128.5" fill="#34d399" xml:space="preserve">Verified                                    </text>
+<text x="702.4" y="128.5" fill="#6b7280" xml:space="preserve">11:16 </text>
 <text x="751.6" y="128.5" fill="#818cf8" xml:space="preserve">Agent </text>
 <text x="800.8" y="128.5" fill="#e6e8eb" xml:space="preserve">I've replaced the tag styling w…       UTC, so results near midnight      </text>
 <text x="1407.6" y="128.5" fill="#a0a6b0" xml:space="preserve">  “Show title, source, date”                </text>
 <text x="30.0" y="145.5" fill="#34d399" xml:space="preserve">○ </text>
-<text x="46.4" y="145.5" fill="#e6e8eb" xml:space="preserve">Fix newsletter unsubscribe       Keep the existing tag colours                </text>
-<text x="702.4" y="145.5" fill="#6b7280" xml:space="preserve">17:33 </text>
+<text x="46.4" y="145.5" fill="#e6e8eb" xml:space="preserve">Fix newsletter unsubscribe   </text>
+<text x="300.6" y="145.5" fill="#6b7280" xml:space="preserve">R2 </text>
+<text x="325.2" y="145.5" fill="#e6e8eb" xml:space="preserve">Keep the existing tag colours               </text>
+<text x="702.4" y="145.5" fill="#6b7280" xml:space="preserve">11:15 </text>
 <text x="751.6" y="145.5" fill="#818cf8" xml:space="preserve">Code change </text>
 <text x="850.0" y="145.5" fill="#e6e8eb" xml:space="preserve">Edited SearchResult.tsx          show the wrong day.                                                            </text>
-<rect x="325.2" y="150" width="164.0" height="17" fill="#342f1d"/>
+<rect x="415.4" y="150" width="82.0" height="17" fill="#342428"/>
 <rect x="1153.4" y="150" width="65.6" height="17" fill="#342428"/>
-<text x="30.0" y="162.5" fill="#e6e8eb" xml:space="preserve">  bug                          </text>
-<text x="300.6" y="162.5" fill="#6b7280" xml:space="preserve">R3 </text>
-<text x="325.2" y="162.5" fill="#fbbf24" xml:space="preserve"> Done, not verified                         </text>
-<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">17:18 </text>
+<text x="30.0" y="162.5" fill="#e6e8eb" xml:space="preserve">  bug                               </text>
+<text x="325.2" y="162.5" fill="#fbbf24" xml:space="preserve">Re-verify</text>
+<text x="415.4" y="162.5" fill="#f87171" xml:space="preserve"> Conflict                        </text>
+<text x="702.4" y="162.5" fill="#6b7280" xml:space="preserve">11:00 </text>
 <text x="751.6" y="162.5" fill="#818cf8" xml:space="preserve">Plan </text>
 <text x="792.6" y="162.5" fill="#e6e8eb" xml:space="preserve">Plan updated                        </text>
-<text x="1104.2" y="162.5" fill="#6b7280" xml:space="preserve">17:42 </text>
+<text x="1104.2" y="162.5" fill="#6b7280" xml:space="preserve">11:24 </text>
 <text x="1153.4" y="162.5" fill="#f87171" xml:space="preserve"> Failed </text>
 <text x="1219.0" y="162.5" fill="#6b7280" xml:space="preserve"> R2                    In the plan                                 </text>
 <text x="46.4" y="179.5" fill="#34d399" xml:space="preserve">1/1 verified                 </text>
-<text x="284.2" y="179.5" fill="#e6e8eb" xml:space="preserve">    Show a one or two line summary               </text>
-<text x="702.4" y="179.5" fill="#6b7280" xml:space="preserve">17:16 Discovery </text>
+<text x="300.6" y="179.5" fill="#6b7280" xml:space="preserve">R3 </text>
+<text x="325.2" y="179.5" fill="#e6e8eb" xml:space="preserve">Show a one or two line summary              </text>
+<text x="702.4" y="179.5" fill="#6b7280" xml:space="preserve">10:58 Discovery </text>
 <text x="833.6" y="179.5" fill="#e6e8eb" xml:space="preserve">Read SearchResult.tsx              Bash: 2 tests failed in            </text>
 <text x="1407.6" y="179.5" fill="#a0a6b0" xml:space="preserve">  ✓ [R1] Title, source and date             </text>
-<rect x="325.2" y="184" width="106.6" height="17" fill="#23273b"/>
-<text x="300.6" y="196.5" fill="#6b7280" xml:space="preserve">R4 </text>
-<text x="325.2" y="196.5" fill="#818cf8" xml:space="preserve"> In progress                                                                                 </text>
+<text x="325.2" y="196.5" fill="#fbbf24" xml:space="preserve">Done, not verified                                                                           </text>
 <text x="1087.8" y="196.5" fill="#e6e8eb" xml:space="preserve">    search-result.test.tsx (tag                                                    </text>
 <text x="30.0" y="213.5" fill="#6b7280" xml:space="preserve">acme-api                       </text>
-<text x="284.2" y="213.5" fill="#e6e8eb" xml:space="preserve">    Highlight matched keywords                                                                        colour snapshot).                  </text>
+<text x="300.6" y="213.5" fill="#6b7280" xml:space="preserve">R4 </text>
+<text x="325.2" y="213.5" fill="#e6e8eb" xml:space="preserve">Highlight matched keywords                                                                       colour snapshot).                  </text>
 <text x="1407.6" y="213.5" fill="#34d399" xml:space="preserve">Passed: npm test -- search-result           </text>
-<rect x="325.2" y="218" width="106.6" height="17" fill="#1c2027"/>
 <rect x="1153.4" y="218" width="82.0" height="17" fill="#342428"/>
 <text x="30.0" y="230.5" fill="#34d399" xml:space="preserve">○ </text>
-<text x="46.4" y="230.5" fill="#e6e8eb" xml:space="preserve">Add country filter to news   </text>
-<text x="300.6" y="230.5" fill="#6b7280" xml:space="preserve">R5  Not started                                                                                 </text>
-<text x="1104.2" y="230.5" fill="#6b7280" xml:space="preserve">17:34 </text>
+<text x="46.4" y="230.5" fill="#e6e8eb" xml:space="preserve">Add country filter to news        </text>
+<text x="325.2" y="230.5" fill="#818cf8" xml:space="preserve">In progress                                                                                    </text>
+<text x="1104.2" y="230.5" fill="#6b7280" xml:space="preserve">11:16 </text>
 <text x="1153.4" y="230.5" fill="#f87171" xml:space="preserve"> Conflict </text>
 <text x="1235.4" y="230.5" fill="#6b7280" xml:space="preserve"> R2                                                              </text>
-<text x="30.0" y="247.5" fill="#e6e8eb" xml:space="preserve">  page                             Make the layout more compact                                                                      The agent's work goes against      </text>
+<text x="30.0" y="247.5" fill="#e6e8eb" xml:space="preserve">  page                         </text>
+<text x="300.6" y="247.5" fill="#6b7280" xml:space="preserve">R5 </text>
+<text x="325.2" y="247.5" fill="#e6e8eb" xml:space="preserve">Make the layout more compact                                                                     The agent's work goes against      </text>
 <text x="1407.6" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">a</text>
 <text x="1415.8" y="247.5" fill="#6b7280" xml:space="preserve"> accept  </text>
 <text x="1489.6" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">d</text>
 <text x="1497.8" y="247.5" fill="#6b7280" xml:space="preserve"> defer  </text>
 <text x="1563.4" y="247.5" fill="#818cf8" font-weight="700" xml:space="preserve">f</text>
 <text x="1571.6" y="247.5" fill="#6b7280" xml:space="preserve"> refine                 </text>
-<rect x="325.2" y="252" width="106.6" height="17" fill="#1c2027"/>
 <text x="46.4" y="264.5" fill="#6b7280" xml:space="preserve">0/1 verified                 </text>
-<text x="300.6" y="264.5" fill="#6b7280" xml:space="preserve">R6  Not started                                                                                 </text>
+<text x="325.2" y="264.5" fill="#6b7280" xml:space="preserve">Not started                                                                                  </text>
 <text x="1087.8" y="264.5" fill="#e6e8eb" xml:space="preserve">    R2: it replaced the tag classes                                                </text>
-<text x="30.0" y="281.5" fill="#e6e8eb" xml:space="preserve">                                   Make sure it works on mobile                                                                      with new ones.                     </text>
+<text x="300.6" y="281.5" fill="#6b7280" xml:space="preserve">R6 </text>
+<text x="325.2" y="281.5" fill="#e6e8eb" xml:space="preserve">Make sure it works on mobile                                                                     with new ones.                     </text>
 <text x="1407.6" y="281.5" fill="#a0a6b0" font-weight="700" xml:space="preserve">COMPLETION AUDIT</text>
-<text x="30.0" y="298.5" fill="#6b7280" xml:space="preserve">This computer                                                                                                                                                           </text>
+<text x="30.0" y="298.5" fill="#6b7280" xml:space="preserve">This computer                  </text>
+<text x="325.2" y="298.5" fill="#6b7280" xml:space="preserve">Not started                                                                                                                         </text>
 <text x="1407.6" y="298.5" fill="#e6e8eb" xml:space="preserve">Accounted 4/6   </text>
 <text x="1538.8" y="298.5" fill="#34d399" xml:space="preserve">Verified 1/6                </text>
 <text x="30.0" y="315.5" fill="#6b7280" xml:space="preserve">◌ Improve mobile layout                                                                                                                                                 The agent saying it's done doesn't count:   </text>
@@ -123,14 +123,14 @@
 <text x="17.0" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">2</text>
 <circle cx="271.2" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
 <text x="271.2" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">3</text>
-<circle cx="418.8" cy="124.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
-<text x="418.8" y="128.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">4</text>
+<circle cx="410.6" cy="158.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="410.6" y="162.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">4</text>
 <circle cx="681.2" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
 <text x="681.2" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">5</text>
 <circle cx="1074.8" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
 <text x="1074.8" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">6</text>
-<circle cx="1394.6" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
-<text x="1394.6" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">7</text>
+<circle cx="17.0" cy="56.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
+<text x="17.0" y="60.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">7</text>
 <circle cx="1394.6" cy="277.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
 <text x="1394.6" y="281.5" fill="#0d0f12" font-weight="700" text-anchor="middle" font-size="12">8</text>
 <circle cx="17.0" cy="583.5" r="9" fill="#fbbf24" stroke="#0d0f12" stroke-width="2"/>
