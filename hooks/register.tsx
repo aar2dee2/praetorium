@@ -881,10 +881,18 @@ async function readPast($: $T, args: string[]): Promise<PastSession[]> {
   return JSON.parse(r.stdout) as PastSession[]
 }
 
-// Haiku through the session's own client; undefined when it gives no answer.
+// Haiku through the session's own client. A call that gets no answer (a rate limit, a timeout)
+// is tried three times, a little apart; the last reason is kept for the import's report.
 const haiku = ($: $T): Complete => async (system, prompt, maxTokens) => {
-  const res = await $.model.complete({ model: HAIKU, system, prompt, maxTokens })
-  return res.isAnswered ? res.text : undefined
+  let reason = ''
+  for (const [i, wait] of [0, 2000, 6000].entries()) {
+    if (wait) await new Promise<void>(resolve => $.clock.after(wait, () => resolve()))
+    const res = await $.model.complete({ model: HAIKU, system, prompt, maxTokens })
+    if (res.isAnswered) return res.text
+    reason = String(res.reason ?? '')
+    if (i === 2) break
+  }
+  return { reason: reason ? `${reason}, after 3 tries` : 'after 3 tries' }
 }
 
 const asLedgerItem = (r: Requirement): LedgerItem => ({
@@ -931,21 +939,20 @@ async function importSessions($: $T, days: number, again = false): Promise<strin
   let tagged = 0
   let imported = 0
   const failures: string[] = []
-  // A few at a time: one Haiku call each.
-  for (let i = 0; i < past.length; i += 4) {
-    await Promise.all(past.slice(i, i + 4).map(async s => {
-      const { reqs, events, failed } = await ledgerOf($, s)
-      if (failed) {
-        failures.push(failed)
-        return
-      }
-      imported++
-      tagged += reqs.length
-      await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
-        sessionId: s.sessionId, project: projectName(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
-        imported: true, hasEnded: false, isWorking: false, asks: s.prompts.map(pr => pr.at),
-        reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
-      }))
+  // One at a time: each session is several Haiku calls, and running them side by side is what
+  // gets calls refused.
+  for (const s of past) {
+    const { reqs, events, failed } = await ledgerOf($, s)
+    if (failed) {
+      failures.push(failed)
+      continue
+    }
+    imported++
+    tagged += reqs.length
+    await $.fs.write(join(plat.data, `state-${s.sessionId}.json`), JSON.stringify({
+      sessionId: s.sessionId, project: projectName(s.cwd), title: s.title || clip(s.prompts[0]?.text ?? '', 70),
+      imported: true, hasEnded: false, isWorking: false, asks: s.prompts.map(pr => pr.at),
+      reqs, replies: [], events, editors: plat.editors, snapDir: plat.tmp, theme, dark: view.dark, at: s.lastAt,
     }))
   }
   const span = `the last ${days} day${days === 1 ? '' : 's'}`

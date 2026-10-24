@@ -86,7 +86,12 @@ export const STATUS_SYSTEM =
   'why: one short sentence of evidence, naming the message it comes from.'
 
 export type LedgerItem = { id: string; title: string; status: string; at: number; quote: string; refinements: { at: number; text: string }[]; why?: string }
-export type Complete = (system: string, prompt: string, maxTokens: number) => Promise<string | undefined>
+// A model call's answer, or why there was none (a rate limit, a timeout…), kept so a failed
+// import can say what went wrong. `undefined` is a plain no answer.
+export type NoAnswer = { reason: string }
+export type Complete = (system: string, prompt: string, maxTokens: number) => Promise<string | NoAnswer | undefined>
+const answered = (r: string | NoAnswer | undefined): r is string => typeof r === 'string'
+const noAnswer = (r: string | NoAnswer | undefined) => `no answer${r && typeof r === 'object' && r.reason ? ` (${r.reason})` : ''}`
 export type PastReply = { at: number; text: string }
 
 const ASK_CHUNK = 8
@@ -156,14 +161,14 @@ export async function buildLedger(
     // 1. asks
     for (let start = 0; start < prompts.length; start += ASK_CHUNK) {
       const reply = await complete(ASKS_SYSTEM, asksPrompt(items, prompts.slice(start, start + ASK_CHUNK), start), 4000)
-      if (reply === undefined) return { items, failed: `no answer for messages ${start + 1}-${Math.min(start + ASK_CHUNK, prompts.length)}` }
+      if (!answered(reply)) return { items, failed: `${noAnswer(reply)} for messages ${start + 1}-${Math.min(start + ASK_CHUNK, prompts.length)}` }
       addItems(items, parseItems(reply), prompts, counter)
     }
     // 2. gaps: a dozen messages at a time against the whole ledger (wider slices let asks slip)
     const GAP = 12
     for (let start = 0; start < prompts.length; start += GAP) {
       const reply = await complete(GAPS_SYSTEM, gapsPrompt(items, prompts.slice(start, start + GAP), start), 4000)
-      if (reply === undefined) return { items, failed: `no answer checking messages ${start + 1}-${Math.min(start + GAP, prompts.length)} for gaps` }
+      if (!answered(reply)) return { items, failed: `${noAnswer(reply)} checking messages ${start + 1}-${Math.min(start + GAP, prompts.length)} for gaps` }
       addItems(items, parseItems(reply).filter(i => !i.refines).map(i => ({ ...i, msg: i.msg })), prompts, counter)
     }
   }
@@ -179,7 +184,7 @@ export async function judgeStatuses(items: LedgerItem[], prompts: PastPrompt[], 
   const SLICE = 30
   for (let from = 0; from < prompts.length; from += SLICE) {
     const reply = await complete(STATUS_SYSTEM, statusPrompt(items, prompts, replies, from, Math.min(prompts.length, from + SLICE)), 8000)
-    if (reply === undefined) return `no answer judging status for messages ${from + 1}-${Math.min(prompts.length, from + SLICE)}`
+    if (!answered(reply)) return `${noAnswer(reply)} judging status for messages ${from + 1}-${Math.min(prompts.length, from + SLICE)}`
     for (const p of parseChunk(reply).progress) {
       const r = items.find(x => x.id === p.id)
       // Keep the evidence from when the status last changed; a later slice with nothing new keeps it.

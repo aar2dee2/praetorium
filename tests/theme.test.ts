@@ -64,4 +64,9 @@ describe('backfill replies', () => {
     const built = await buildLedger(prompts, [], async () => (n++ ? undefined : '{"items":[]}'))
     expect(built.failed).toContain('messages 9-12')
   })
+  test('the reason the model gave for not answering is kept in the failure', async () => {
+    const prompts = Array.from({ length: 4 }, (_, i) => ({ at: i, text: `m${i}`, lastReply: '' }))
+    const built = await buildLedger(prompts, [], async () => ({ reason: 'rate limited, after 3 tries' }))
+    expect(built.failed).toBe('no answer (rate limited, after 3 tries) for messages 1-4')
+  })
 })
