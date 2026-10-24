@@ -1,10 +1,10 @@
-# Praetorium
+# Principia
 
 **Your Claude Code dashboard: every instruction in view while the agent works.**
 
 In a long Claude Code session, what you asked for, what the agent plans, what it is doing and what has actually been checked all end up in one scrolling chat. Your corrections get buried, and you end up asking "did you do everything I asked?"
 
-Praetorium keeps those apart:
+Principia keeps those apart:
 
 - **Requirements ledger.** Each prompt you send is split into separate requirements (R1, R2…) by Claude Haiku, with your exact words kept. A later correction is linked to the requirement it changes; nothing is silently overwritten. You don't label anything.
 - **Activity stream.** Edits, commands, tests, plans and the agent's messages, each linked to the requirements its turn worked on, so selecting a requirement shows only what was done for it. Activity recorded before this (and imported sessions) is placed by time: it belongs to the turn of your latest message before it. Reply to any one of them as a **comment** (the agent never sees it), a **new or refined requirement**, or an **instruction** to the agent, optionally interrupting it first. Each reply shows whether the agent actually received it.
@@ -19,10 +19,10 @@ It shows up in two places: a **pane** inside each Claude Code session, and a **t
 
 <!-- Launch video: replace this comment with the link, e.g. [▶ Watch the launch video](https://…) -->
 
-![Praetorium's terminal dashboard: sessions, requirements, activity, signals, details and the completion audit](docs/dashboard.svg)
+![Principia's terminal dashboard: sessions, requirements, activity, signals, details and the completion audit](docs/dashboard.svg)
 
 1. **Title bar:** the session you're looking at, whether its agent is working, and how many requirements are verified.
-2. **Sessions:** every Claude Code session running Praetorium, by project, named as Claude Code names them: ● working, ○ idle, ◌ imported, `·` not running. `S` hides this column.
+2. **Sessions:** every Claude Code session running Principia, by project, named as Claude Code names them: ● working, ○ idle, ◌ imported, `·` not running. `S` hides this column.
 3. **Requirements:** what you asked for, split from your prompts, each with its status. `/` searches, `F` filters.
 4. **Conflict:** a later message, or the agent's work, contradicts this requirement. `x` marks it resolved.
 5. **Activity · Plan · Tests · Preview:** what the agent did for the requirement you have selected (`A` shows all of it), its plan linked to your requirements, every test or build run, and preview links.
@@ -37,33 +37,37 @@ It shows up in two places: a **pane** inside each Claude Code session, and a **t
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install Praetorium: run **`claude plugin marketplace add aar2dee2/praetorium`** and then **`claude plugin install praetorium@praetorium`**. Then tell me to start a new Claude Code session, where Praetorium will ask whether it may read my existing transcripts to show earlier sessions; then run `/ledger window` to open the dashboard in my terminal, and ask whether I want to match my brand's colours with `/ledger theme import <my website or tailwind.config.js>`.
+> Install Principia: run **`claude plugin marketplace add aar2dee2/principia`** and then **`claude plugin install principia@principia`**. Then tell me to start a new Claude Code session, where Principia will ask whether it may read my existing transcripts to show earlier sessions; then run `/ledger window` to open the dashboard in my terminal, and ask whether I want to match my brand's colours with `/ledger theme import <my website or tailwind.config.js>`.
 
 Works in the Claude Code terminal app and in the Claude desktop app's Code tab, on macOS, Windows and Linux.
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with plugin hooks, and [Git](https://git-scm.com/) for diffs. No Node, no Python.
 
-The plugin runs inside Claude Code. The terminal window and the transcript importer are one standalone program, `praetorium` (built with Bun for macOS, Windows and Linux; 60–115 MB). The first `/ledger window` tells you this and asks you to run `/ledger install`.
+The plugin runs inside Claude Code. The terminal window and the transcript importer are one standalone program, `principia` (built with Bun for macOS, Windows and Linux; 60–115 MB). The first `/ledger window` tells you this and asks you to run `/ledger install`.
 
 ### Update
 
-> Update Praetorium: run `claude plugin marketplace update praetorium` and then `claude plugin update praetorium@praetorium`.
+> Update Principia: run `claude plugin marketplace update principia` and then `claude plugin update principia@principia`.
 
 Then start a new session and run `/ledger install` once more: each version of the plugin uses its own build of the program. An open window switches to the new build by itself, and the old one is removed.
 
 ### Uninstall
 
-> Uninstall Praetorium: run `claude plugin uninstall praetorium@praetorium` and `claude plugin marketplace remove praetorium`.
+> Uninstall Principia: run `claude plugin uninstall principia@principia` and `claude plugin marketplace remove principia`.
 
-Your ledgers stay in `~/.claude/praetorium` until you delete that folder.
+Your ledgers stay in `~/.claude/principia` until you delete that folder.
+
+### Coming from Praetorium
+
+Principia was called Praetorium up to 0.3.8. Uninstall that one (`claude plugin uninstall praetorium@praetorium` and `claude plugin marketplace remove praetorium`), install Principia as above, and start a new session: your ledgers move from `~/.claude/praetorium` to `~/.claude/principia` on their own. The plugin's own settings (transcript permission, pane width) start afresh, so it asks about transcripts once more.
 
 ## Commands
 
-Type these in any Claude Code session where Praetorium is installed.
+Type these in any Claude Code session where Principia is installed.
 
 ### `/ledger`
 
-Opens the Praetorium pane beside the conversation, with tabs for Requirements, Signals, Activity, Plan, Tests, Preview and Audit. It opens on its own when a session starts; use this to bring it back after closing it.
+Opens the Principia pane beside the conversation, with tabs for Requirements, Signals, Activity, Plan, Tests, Preview and Audit. It opens on its own when a session starts; use this to bring it back after closing it.
 
 ### `/ledger wide` · `/ledger narrow`
 
@@ -71,7 +75,7 @@ Asks for a wide pane (requirements, signals, activity and audit side by side) or
 
 ### `/ledger window`
 
-Opens the dashboard in its own terminal window, showing **every** Claude Code session running Praetorium, not just this one. There's only ever one window: if it's already open, this switches it to the session you ran the command from. The first time, it asks you to run `/ledger install`.
+Opens the dashboard in its own terminal window, showing **every** Claude Code session running Principia, not just this one. There's only ever one window: if it's already open, this switches it to the session you ran the command from. The first time, it asks you to run `/ledger install`.
 
 ### `/ledger window <terminal>`
 
@@ -83,15 +87,15 @@ The same, in a terminal you choose, remembered from then on. Without a name, the
 
 ### `/ledger install`
 
-Downloads the `praetorium` program for your system from this repository's GitHub releases, checks it against the SHA-256 recorded in the plugin (a mismatch is deleted, never run), checks that it starts, and keeps it in `~/.claude/praetorium/bin`. Needed once per Praetorium version, for `/ledger window` and `/ledger import`.
+Downloads the `principia` program for your system from this repository's GitHub releases, checks it against the SHA-256 recorded in the plugin (a mismatch is deleted, never run), checks that it starts, and keeps it in `~/.claude/principia/bin`. Needed once per Principia version, for `/ledger window` and `/ledger import`.
 
 ### `/ledger refresh`
 
-Reads this session's **whole** conversation, from the first message: adds any requirement the ledger missed (existing ones keep their ids) and corrects any status that's wrong. Use it if statuses look stale, for example in a session that ran before Praetorium judged progress on its own. Reads this session's transcript, so it needs your permission (below). A long session takes a minute or two.
+Reads this session's **whole** conversation, from the first message: adds any requirement the ledger missed (existing ones keep their ids) and corrects any status that's wrong. Use it if statuses look stale, for example in a session that ran before Principia judged progress on its own. Reads this session's transcript, so it needs your permission (below). A long session takes a minute or two.
 
 ### `/ledger import [days]`
 
-Adds sessions you started **before** installing Praetorium, read from their Claude Code transcripts: the last 2 days by default, up to 30. Each appears in the window (marked ◌, read-only) with its requirements, and the status each one reached in the conversation. Needs your permission first (below).
+Adds sessions you started **before** installing Principia, read from their Claude Code transcripts: the last 2 days by default, up to 30. Each appears in the window (marked ◌, read-only) with its requirements, and the status each one reached in the conversation. Needs your permission first (below).
 
 ### `/ledger import refresh [days]`
 
@@ -115,7 +119,7 @@ Builds a theme from your brand (see [Your own colours](#your-own-colours)).
 
 ## The terminal window
 
-Titled **Praetorium - Your Claude Code Dashboard**. Sessions are listed by project with the names Claude Code gives them; ● working, ○ idle, ◌ imported, · not running. Only running sessions accept replies: one that has stopped says so instead of taking a message nobody would read.
+Titled **Principia - Your Claude Code Dashboard**. Sessions are listed by project with the names Claude Code gives them; ● working, ○ idle, ◌ imported, · not running. Only running sessions accept replies: one that has stopped says so instead of taking a message nobody would read.
 
 | Key | Does |
 |---|---|
@@ -141,16 +145,16 @@ Titled **Praetorium - Your Claude Code Dashboard**. Sessions are listed by proje
 
 Colours are full 24-bit where the terminal supports it, and the nearest of 256 elsewhere (Apple Terminal, older consoles).
 
-## Sessions from before Praetorium
+## Sessions from before Principia
 
-Sessions started before you installed Praetorium don't run it, so nothing in them can reach the agent. Their transcripts can still be read, with your permission:
+Sessions started before you installed Principia don't run it, so nothing in them can reach the agent. Their transcripts can still be read, with your permission:
 
 - **Asked first.** The first session after installing shows a dialog explaining what would be read. Nothing is read until you choose Allow, including the session titles the window shows (until then it shows each session's first prompt). Change the answer with `/ledger import allow` or `revoke`.
 - **What is read.** From `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`): your prompts, the agent's replies, and the name and file path or command of each tool call. File contents and diffs are not kept. Nothing is written to the transcripts.
 - **When.** Once you allow it, sessions from the last 2 days are imported then, and each new session start imports any recent ones still missing (at most every 10 minutes).
 - **How it's read.** The whole conversation, from the first message, including messages sent while the agent was working, in three passes. First your asks, a few messages at a time, each pass given every requirement found so far; then a check of all your messages against the ledger for anything missed; then each requirement's status, judged against everything the agent said afterwards. Early requirements in long sessions are never dropped. A session started from another session counts the task it was given as yours (you asked for it there); `claude -p` runs don't count.
 - **What it costs.** A few Claude Haiku calls per session: about one per 5 messages.
-- **Reopen to connect.** When you reopen an old session, Praetorium loads in it and takes over its imported ledger. From there, replies, instructions and interrupts work as usual.
+- **Reopen to connect.** When you reopen an old session, Principia loads in it and takes over its imported ledger. From there, replies, instructions and interrupts work as usual.
 
 ## Your own colours
 
@@ -166,7 +170,7 @@ A theme is eleven colours per mode: `bg`, `surface`, `surface2`, `border`, `text
 - **A website**: its `theme-color`, inline styles and up to four stylesheets are read.
 - **A Tailwind config or a CSS file** (Tailwind v3 `colors`, v4 `@theme`, CSS variables): only the lines carrying colours are read.
 - **Any of those** goes to Claude Haiku, which maps your brand onto the eleven colours for both modes.
-- **A theme JSON** in Praetorium's own format is used as is, with no model call:
+- **A theme JSON** in Principia's own format is used as is, with no model call:
 
 ```json
 {
@@ -180,7 +184,7 @@ Missing colours come from the default theme, and any colour too faint to read on
 
 ## How accurate it is
 
-Measured on two of the long sessions Praetorium was built in, each requirement and status checked by Fable 5.1 against the full conversation (`bun scripts/eval-ledger.mjs <session id>`):
+Measured on two of the long sessions Principia was built in, each requirement and status checked by Fable 5.1 against the full conversation (`bun scripts/eval-ledger.mjs <session id>`):
 
 | | Requirements that are real asks | Statuses right | Asks missed |
 |---|---|---|---|
@@ -199,46 +203,46 @@ Live statuses run a little behind: most of the misses are work the agent finishe
 - **Imports and `/ledger refresh`:** a few Haiku calls per session, more for long ones: the three passes read the whole conversation, a few messages at a time.
 - **Reopening a session after an update:** once per version, the whole conversation is read again, as `/ledger refresh` does, so ledgers kept by older versions get the same statuses.
 - **Theme imports:** one Haiku call.
-- **Files:** none in your projects. Everything lives in `~/.claude/praetorium`: one small ledger per session (dropped after 30 days unused), pre-edit copies for diffs in `snapshots/` (dropped after 7 days; files that may hold secrets, like `.env` or keys, are never copied), and the program in `bin/` (older versions removed).
+- **Files:** none in your projects. Everything lives in `~/.claude/principia`: one small ledger per session (dropped after 30 days unused), pre-edit copies for diffs in `snapshots/` (dropped after 7 days; files that may hold secrets, like `.env` or keys, are never copied), and the program in `bin/` (older versions removed).
 
-## What Praetorium reads, runs and sends
+## What Principia reads, runs and sends
 
 Everything stays on your machine, except the model calls, which go through your own Claude account like any other Claude Code request.
 
-- **Reads:** the messages you send and the agent's replies and tool calls in sessions where Praetorium runs (through Claude Code's plugin hooks). With your permission only: earlier sessions' transcripts in `~/.claude/projects` (for `/ledger import`, `/ledger refresh` and session titles in the window).
-- **Writes:** `~/.claude/praetorium` (each session's ledger, the window's settings and heartbeat, copies of files before edits for diffs) and the plugin's own store. Nothing is written into your projects or transcripts.
+- **Reads:** the messages you send and the agent's replies and tool calls in sessions where Principia runs (through Claude Code's plugin hooks). With your permission only: earlier sessions' transcripts in `~/.claude/projects` (for `/ledger import`, `/ledger refresh` and session titles in the window).
+- **Writes:** `~/.claude/principia` (each session's ledger, the window's settings and heartbeat, copies of files before edits for diffs) and the plugin's own store. Nothing is written into your projects or transcripts.
 - **Sends:** short Claude Haiku requests through Claude Code: your message and the agent's last reply when tagging, the requirement list and each turn's reply and work for the per-turn review, and transcripts when you import or refresh. No other server receives anything, and there is no telemetry.
-- **Fetches:** only when you ask. `/ledger install` downloads the `praetorium` program from this repository's GitHub releases (checked against its SHA-256 before it runs); `/ledger theme import <url>` fetches that page and its stylesheets.
-- **Runs:** the `praetorium` program (window, importer, diff), your terminal app to open the window, your editor to show a diff, and `git`, `curl`, `shasum`/`certutil` as named above.
+- **Fetches:** only when you ask. `/ledger install` downloads the `principia` program from this repository's GitHub releases (checked against its SHA-256 before it runs); `/ledger theme import <url>` fetches that page and its stylesheets.
+- **Runs:** the `principia` program (window, importer, diff), your terminal app to open the window, your editor to show a diff, and `git`, `curl`, `shasum`/`certutil` as named above.
 
 ## Your secrets
 
-Praetorium never reads env files or other files that may hold secrets: `.env` and every `.env.*`, `.npmrc`, `.netrc`, `.pgpass`, SSH keys (`id_rsa`, `id_ed25519`, `id_ecdsa`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials*` and `secret(s).*`. It doesn't copy them for diffs, doesn't open their diffs (in the pane, the window or the program), and won't import a theme from one. When the agent edits such a file, the activity shows that it did, never what's inside.
+Principia never reads env files or other files that may hold secrets: `.env` and every `.env.*`, `.npmrc`, `.netrc`, `.pgpass`, SSH keys (`id_rsa`, `id_ed25519`, `id_ecdsa`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `credentials*` and `secret(s).*`. It doesn't copy them for diffs, doesn't open their diffs (in the pane, the window or the program), and won't import a theme from one. When the agent edits such a file, the activity shows that it did, never what's inside.
 
 It does read a few environment *variables*, only to find its folders and the right terminal: `HOME` / `USERPROFILE`, `CLAUDE_CONFIG_DIR`, `TMPDIR` / `TEMP` / `TMP`, `SHELL`, `OS`, `CLAUDE_CODE_ENTRYPOINT`, and in the window `TERM`, `TERM_PROGRAM`, `COLORTERM`, `WT_SESSION`, `KITTY_WINDOW_ID`. Nothing else, and none are stored or sent anywhere.
 
 ## How it works
 
-Praetorium is a Claude Code plugin made of function hooks (`hooks/register.tsx`):
+Principia is a Claude Code plugin made of function hooks (`hooks/register.tsx`):
 
 - `prompt.submit` tags requirements with Haiku, flags conflicts, and tells the agent the ids.
-- `tool.call` turns edits, commands, tests and plans into activity, records failed or refused calls as signals (with what was run and what came back), and copies a file before it is edited (for diffs). It never fails your tool call, even if Praetorium itself errors.
+- `tool.call` turns edits, commands, tests and plans into activity, records failed or refused calls as signals (with what was run and what came back), and copies a file before it is edited (for diffs). It never fails your tool call, even if Principia itself errors.
 - `turn.start` / `turn.complete` track whether the agent is working, record its answers, and run the per-turn review. The requirements a turn worked on (the ones your message touched, the plan step in progress, the ones the agent reported on or the review judged) are linked to every event of that turn.
 - The `ledger` tool lets the agent report progress; `verified` is refused without a passing test, build or check after the last edit.
 - Replies reach the agent inside its running turn, start a new turn, or wait for your next prompt, and say which happened.
-- `viewer/` is the `praetorium` program (`cli.mjs`): the terminal window (`ledger-view.mjs`), which reads each session's ledger and writes your actions to an inbox the session polls; the transcript importer (`import.mjs`); and the diff view. `scripts/build.ts` compiles it per platform and records the checksums in `hooks/release.ts`.
+- `viewer/` is the `principia` program (`cli.mjs`): the terminal window (`ledger-view.mjs`), which reads each session's ledger and writes your actions to an inbox the session polls; the transcript importer (`import.mjs`); and the diff view. `scripts/build.ts` compiles it per platform and records the checksums in `hooks/release.ts`.
 - `hooks/tagging.ts` holds the Haiku prompts; `hooks/work.ts` links plan steps, finds preview links and filters requirements, shared by the pane and the window.
 
 ## Develop
 
 ```bash
-git clone https://github.com/aar2dee2/praetorium.git
+git clone https://github.com/aar2dee2/principia.git
 ```
 
 Run Claude Code from your clone instead of the marketplace build by adding this to the `env` block of `~/.claude/settings.json`, then start a new session. Edits reload live, and with [Bun](https://bun.sh) installed the window runs from source. Don't also install it from the marketplace, or it loads twice; remove these lines before going back to the installed version.
 
 ```json
-"CLAUDE_CODE_PLUGIN_DIRS": "/path/to/praetorium",
+"CLAUDE_CODE_PLUGIN_DIRS": "/path/to/principia",
 "CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"
 ```
 
@@ -278,7 +282,7 @@ bun scripts/live-check.mjs import <session id>
 
 ### Releasing
 
-Bump the version in `.claude-plugin/plugin.json`, run `bun scripts/build.ts` (it rewrites `hooks/release.ts` with the new checksums), commit, tag `v<version>` on that commit, and publish `dist/praetorium-*` as that tag's release.
+Bump the version in `.claude-plugin/plugin.json`, run `bun scripts/build.ts` (it rewrites `hooks/release.ts` with the new checksums), commit, tag `v<version>` on that commit, and publish `dist/principia-*` as that tag's release.
 
 ## License
 

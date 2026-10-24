@@ -7,7 +7,7 @@ export type Platform = {
   tmp: string
   // Kept: each session's ledger, the window's inbox and heartbeat, the downloaded program.
   data: string
-  // How to run the praetorium program (window, importer, diff); empty until it's installed.
+  // How to run the principia program (window, importer, diff); empty until it's installed.
   runner: string[]
   editors: Editor[]
 }
@@ -15,7 +15,7 @@ export type Platform = {
 // The standalone program's file name for this machine, as published on each release.
 export function programName(os: OS, arch: string): string {
   const a = /arm|aarch/i.test(arch) ? 'arm64' : 'x64'
-  return os === 'windows' ? `praetorium-windows-${a}.exe` : `praetorium-${os === 'mac' ? 'darwin' : 'linux'}-${a}`
+  return os === 'windows' ? `principia-windows-${a}.exe` : `principia-${os === 'mac' ? 'darwin' : 'linux'}-${a}`
 }
 
 export const join = (...parts: string[]) => parts.join('/').replace(/[\\/]+/g, '/')
@@ -83,8 +83,8 @@ export function launchCommand(os: OS, term: Terminal, argv: string[], title: str
         return { cmd: [`${app}/Contents/MacOS/kitty`, '--title', title, ...argv] }
       case 'warp': {
         // Warp runs a command in a new window only through a launch configuration.
-        const path = join(home, '.warp/launch_configurations/praetorium.yaml')
-        const text = `---\nname: Praetorium\nwindows:\n  - tabs:\n      - title: ${title}\n        layout:\n          cwd: ${JSON.stringify(home)}\n          commands:\n            - exec: ${JSON.stringify(posix)}\n`
+        const path = join(home, '.warp/launch_configurations/principia.yaml')
+        const text = `---\nname: Principia\nwindows:\n  - tabs:\n      - title: ${title}\n        layout:\n          cwd: ${JSON.stringify(home)}\n          commands:\n            - exec: ${JSON.stringify(posix)}\n`
         return { cmd: ['open', `warp://launch/${encodeURIComponent(path)}`], file: { path, text } }
       }
       default:
@@ -98,8 +98,8 @@ export function launchCommand(os: OS, term: Terminal, argv: string[], title: str
       // `start` takes the first quoted argument as the window title, so the title stays unquoted
       // and one word; the program then runs directly, with no inner shell to re-parse its arguments.
       case 'pwsh':
-      case 'powershell': return { cmd: ['cmd', '/c', 'start', 'Praetorium', term.id, '-NoExit', '-Command', `& ${argv.map(a => `'${a.replace(/'/g, "''")}'`).join(' ')}`] }
-      default: return { cmd: ['cmd', '/c', 'start', 'Praetorium', ...argv] }
+      case 'powershell': return { cmd: ['cmd', '/c', 'start', 'Principia', term.id, '-NoExit', '-Command', `& ${argv.map(a => `'${a.replace(/'/g, "''")}'`).join(' ')}`] }
+      default: return { cmd: ['cmd', '/c', 'start', 'Principia', ...argv] }
     }
   }
   switch (term.id) {

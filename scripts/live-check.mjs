@@ -28,7 +28,7 @@ function result(ok, label, detail = '') {
 }
 
 function haiku(system, prompt) {
-  // Project settings only and no plugin folders, so Praetorium itself doesn't tag the check's prompt.
+  // Project settings only and no plugin folders, so Principia itself doesn't tag the check's prompt.
   const args = ['-p', '--model', HAIKU, '--system-prompt', system, '--tools', '', '--no-session-persistence', '--setting-sources', 'project']
   const r = spawnSync('claude', args, {
     input: prompt, encoding: 'utf8', shell: process.platform === 'win32', timeout: 120_000,
@@ -107,9 +107,9 @@ async function terminal(id) {
   const list = osName === 'mac' ? MAC : osName === 'windows' ? WINDOWS : LINUX
   const term = list.find(t => t.id === id)
   if (!term) return result(false, `${id} is a supported terminal on ${osName}`, `supported: ${list.map(t => t.id).join(', ')}`)
-  const marker = path.join(os.tmpdir(), `praetorium-check-${Date.now()}`)
+  const marker = path.join(os.tmpdir(), `principia-check-${Date.now()}`)
   const argv = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ok')`]
-  const launch = launchCommand(osName, term, argv, 'Praetorium check', os.homedir())
+  const launch = launchCommand(osName, term, argv, 'Principia check', os.homedir())
   if (launch.file) {
     fs.mkdirSync(path.dirname(launch.file.path), { recursive: true })
     fs.writeFileSync(launch.file.path, launch.file.text)
@@ -122,7 +122,7 @@ async function terminal(id) {
 }
 
 async function importOne(id) {
-  const out = path.join(os.tmpdir(), `praetorium-import-check-${Date.now()}.json`)
+  const out = path.join(os.tmpdir(), `principia-import-check-${Date.now()}.json`)
   const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
   const r = spawnSync(process.execPath, [new URL('../viewer/import.mjs', import.meta.url).pathname, path.join(config, 'projects'), out, '--session', id], { encoding: 'utf8' })
   result(r.status === 0, 'the transcript was read', (r.stderr || r.stdout).trim())

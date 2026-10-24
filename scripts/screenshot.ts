@@ -60,7 +60,7 @@ const sessions = [
     reqs: [{ id: 'R1', title: 'Fix the nav on small screens', status: 'captured', at: min(950), history: [hist('fix mobile nav', min(950))], evidence: [] }], events: [], signals: [], plan: [], previews: [], replies: [] },
 ]
 
-const dir = mkdtempSync(join(tmpdir(), 'praetorium-shot-'))
+const dir = mkdtempSync(join(tmpdir(), 'principia-shot-'))
 for (const s of sessions) {
   writeFileSync(join(dir, `state-${s.sessionId}.json`), JSON.stringify(s))
   if (!s.imported) writeFileSync(join(dir, `alive-${s.sessionId}`), String(now))
@@ -141,7 +141,7 @@ const lines = grid.map(cells => cells.map(c => c.ch).join(''))
 if (process.env.SHOT_TEXT) writeFileSync(process.env.SHOT_TEXT, lines.join('\n'))
 // [label, number, take the last match on its line (the details column repeats the selected id)]
 const markers: [string, string, boolean?][] = [
-  ['Praetorium - Your Claude Code Dashboard', '1'], ['SESSIONS', '2'], ['REQUIREMENTS', '3'], ['Conflict', '4'], ['1 Activity', '5'],
+  ['Principia - Your Claude Code Dashboard', '1'], ['SESSIONS', '2'], ['REQUIREMENTS', '3'], ['Conflict', '4'], ['1 Activity', '5'],
   ['SIGNALS', '6'], ['R1 ', '7', true], ['COMPLETION AUDIT', '8'], ['tab column', '9'],
 ]
 for (const [label, n, last] of markers) {
@@ -156,7 +156,7 @@ for (const [label, n, last] of markers) {
 }
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
-<title>Praetorium - Your Claude Code Dashboard</title>
+<title>Principia - Your Claude Code Dashboard</title>
 ${parts.join('\n')}
 </svg>
 `

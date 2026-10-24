@@ -33,7 +33,7 @@ import type { Tone } from './theme'
 type $T = EngineInterface
 
 const PANE = 'ledger'
-const TOOL = 'mcp__praetorium__ledger'
+const TOOL = 'mcp__principia__ledger'
 const HAIKU = 'claude-haiku-5-5'
 const HUMAN = new Set(['composer', 'bridge', 'sdk'])
 const TEST_RE = /\b(test|tests|jest|vitest|pytest|mix test|rspec|playwright|cypress|tsc|typecheck|lint|eslint|build|check|cargo check|go vet)\b/i
@@ -47,22 +47,22 @@ const DEFAULT_VIEW: View = {
   dark: true,
 }
 
-const reqsA = atom({ plugin: 'praetorium', key: 'reqs' } as const, [] as Requirement[])
-const eventsA = atom({ plugin: 'praetorium', key: 'events' } as const, [] as ActivityEvent[])
-const repliesA = atom({ plugin: 'praetorium', key: 'replies' } as const, [] as Reply[])
-const viewA = atom({ plugin: 'praetorium', key: 'view' } as const, DEFAULT_VIEW)
-const turnA = atom({ plugin: 'praetorium', key: 'turnId' } as const, '')
-const inboxSeqA = atom({ plugin: 'praetorium', key: 'inboxSeq' } as const, 0)
-const titleA = atom({ plugin: 'praetorium', key: 'title' } as const, '')
-const themeA = atom({ plugin: 'praetorium', key: 'theme' } as const, DEFAULT_THEME)
-const signalsA = atom({ plugin: 'praetorium', key: 'signals' } as const, [] as Signal[])
-const planA = atom({ plugin: 'praetorium', key: 'plan' } as const, [] as PlanStep[])
-const previewsA = atom({ plugin: 'praetorium', key: 'previews' } as const, [] as Preview[])
+const reqsA = atom({ plugin: 'principia', key: 'reqs' } as const, [] as Requirement[])
+const eventsA = atom({ plugin: 'principia', key: 'events' } as const, [] as ActivityEvent[])
+const repliesA = atom({ plugin: 'principia', key: 'replies' } as const, [] as Reply[])
+const viewA = atom({ plugin: 'principia', key: 'view' } as const, DEFAULT_VIEW)
+const turnA = atom({ plugin: 'principia', key: 'turnId' } as const, '')
+const inboxSeqA = atom({ plugin: 'principia', key: 'inboxSeq' } as const, 0)
+const titleA = atom({ plugin: 'principia', key: 'title' } as const, '')
+const themeA = atom({ plugin: 'principia', key: 'theme' } as const, DEFAULT_THEME)
+const signalsA = atom({ plugin: 'principia', key: 'signals' } as const, [] as Signal[])
+const planA = atom({ plugin: 'principia', key: 'plan' } as const, [] as PlanStep[])
+const previewsA = atom({ plugin: 'principia', key: 'previews' } as const, [] as Preview[])
 // Whether this session has ever drawn the pane: a headless run (claude -p, the SDK) never does,
 // whatever its environment says, so the window can leave it out.
-const drawnA = atom({ plugin: 'praetorium', key: 'drawn' } as const, false)
+const drawnA = atom({ plugin: 'principia', key: 'drawn' } as const, false)
 // Every turn's message and reply, so statuses can be re-judged against the whole session.
-const turnsA = atom({ plugin: 'praetorium', key: 'turns' } as const, [] as Turn[])
+const turnsA = atom({ plugin: 'principia', key: 'turns' } as const, [] as Turn[])
 const CONSOLIDATE_EVERY = 6
 
 const STATUS: Record<ReqStatus, { label: string; tone: Tone }> = {
@@ -95,7 +95,7 @@ const DELIVERY: Record<Delivery, string> = {
 
 // Found on the machine at session start; module state is fine because
 // session.start runs again on every reload.
-let plat: Platform = { os: 'mac', tmp: '/tmp/praetorium', data: '', runner: [], editors: [] }
+let plat: Platform = { os: 'mac', tmp: '/tmp/principia', data: '', runner: [], editors: [] }
 let storeKey = ''
 let sessionId = ''
 let project = ''
@@ -369,13 +369,13 @@ async function snapshot($: $T, ev: ActivityEvent) {
 async function openDiff($: $T, ev: ActivityEvent, how: string) {
   if (!ev.file) return
   // Never read or show a file that may hold secrets, not even as a diff.
-  if (isSecretPath(ev.file)) return void $.ui.toast(`${base(ev.file)} may hold secrets, so Praetorium doesn't open its diff.`)
+  if (isSecretPath(ev.file)) return void $.ui.toast(`${base(ev.file)} may hold secrets, so Principia doesn't open its diff.`)
   const snap = snapOf(ev)
   const hasSnap = await $.fs.exists(snap).catch(() => false)
   if (how === 'terminal') {
     const term = await chosenTerminal($)
-    if (!term || !plat.runner.length) return void $.ui.toast('The Praetorium program is not installed: run /ledger install.')
-    const err = await openIn($, term, programArgs('diff', hasSnap ? snap : '', ev.file), 'Praetorium diff')
+    if (!term || !plat.runner.length) return void $.ui.toast('The Principia program is not installed: run /ledger install.')
+    const err = await openIn($, term, programArgs('diff', hasSnap ? snap : '', ev.file), 'Principia diff')
     if (err) await $.ui.toast(`Could not open the diff: ${err}`)
     return
   }
@@ -412,8 +412,8 @@ async function which($: $T, os: OS, name: string): Promise<string> {
   return ''
 }
 
-// The praetorium program (window, importer, diff): the downloaded release for this
-// machine, or, when developing Praetorium, its source run with Bun.
+// The principia program (window, importer, diff): the downloaded release for this
+// machine, or, when developing Principia, its source run with Bun.
 async function findProgram($: $T, os: OS, data: string): Promise<string[]> {
   const arch = firstLine((await run($, os === 'windows' ? ['cmd', '/c', 'echo', '%PROCESSOR_ARCHITECTURE%'] : ['uname', '-m']))?.stdout)
   const bin = join(data, 'bin', `${RELEASE.version}-${programName(os, arch)}`)
@@ -431,13 +431,18 @@ async function detect($: $T): Promise<Platform> {
     ? (await $.env.get('TEMP')) || (await $.env.get('TMP')) || 'C:/Windows/Temp'
     : (await $.env.get('TMPDIR')) || '/tmp'
   const config = (await $.env.get('CLAUDE_CONFIG_DIR')) || join((await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || '', '.claude')
-  const data = join(config, 'praetorium')
+  const data = join(config, 'principia')
+  // Ledgers kept under the old name (Praetorium, up to 0.3.8) move over once, folder and all.
+  const old = join(config, 'praetorium')
+  if (!(await $.fs.exists(data).catch(() => true)) && (await $.fs.exists(old).catch(() => false))) {
+    await run($, isWindows ? ['cmd', '/c', 'move', '/y', old.replace(/\//g, '\\'), data.replace(/\//g, '\\')] : ['mv', old, data])
+  }
   const editors: Editor[] = []
   for (const [name, cmd, macBin] of EDITORS) {
     const bin = os === 'mac' && (await $.fs.exists(macBin).catch(() => false)) ? macBin : await which($, os, cmd)
     if (bin) editors.push({ name, bin })
   }
-  return { os, tmp: join(tmpRoot, 'praetorium'), data, runner: await findProgram($, os, data), editors }
+  return { os, tmp: join(tmpRoot, 'principia'), data, runner: await findProgram($, os, data), editors }
 }
 
 async function installedTerminals($: $T): Promise<Terminal[]> {
@@ -482,7 +487,7 @@ async function readThemeSource($: $T, from: string): Promise<string> {
 }
 
 async function importTheme($: $T, from: string): Promise<Theme> {
-  if (!/^https?:/i.test(from) && isSecretPath(from)) throw new Error('that file may hold secrets, so Praetorium will not read it')
+  if (!/^https?:/i.test(from) && isSecretPath(from)) throw new Error('that file may hold secrets, so Principia will not read it')
   if (/\.json$/i.test(from) && !/^https?:/i.test(from)) {
     const own = ownThemeFile(String(await $.fs.read(from)))
     if (own) return own
@@ -695,12 +700,12 @@ async function openWindow($: $T, wanted: string): Promise<string> {
   const beat = Number(await $.fs.read(join(plat.data, 'viewer.alive')).catch(() => '0'))
   if (!wanted && now() - beat < 3000) {
     await $.fs.write(join(plat.data, 'viewer.focus'), sessionId)
-    return 'The Praetorium window is already open; it now shows this session. (/ledger window <terminal> opens another.)'
+    return 'The Principia window is already open; it now shows this session. (/ledger window <terminal> opens another.)'
   }
-  const err = await openIn($, term, programArgs('view', plat.data, sessionId, await projectsDir($)), 'Praetorium')
+  const err = await openIn($, term, programArgs('view', plat.data, sessionId, await projectsDir($)), 'Principia')
   return err
     ? `Could not open ${term.name}: ${err}`
-    : `Praetorium opened in ${term.name}.${found.length > 1 ? ` Others: ${found.filter(t => t !== term).map(t => t.id).join(', ')} (/ledger window <name>).` : ''}`
+    : `Principia opened in ${term.name}.${found.length > 1 ? ` Others: ${found.filter(t => t !== term).map(t => t.id).join(', ')} (/ledger window <name>).` : ''}`
 }
 
 // ---------- moving ledgers out of the temp folder (0.2 kept them there) ----------
@@ -760,7 +765,7 @@ async function prune($: $T) {
     if (now() - f.mtimeMs > 7 * 86_400_000) old.push(join(plat.data, 'snapshots', f.name))
   }
   for (const f of await $.fs.list(join(plat.data, 'bin')).catch(() => [])) {
-    if (/^\d+\.\d+\.\d+-praetorium/.test(f.name) && !f.name.startsWith(`${RELEASE.version}-`)) old.push(join(plat.data, 'bin', f.name))
+    if (/^\d+\.\d+\.\d+-(principia|praetorium)/.test(f.name) && !f.name.startsWith(`${RELEASE.version}-`)) old.push(join(plat.data, 'bin', f.name))
   }
   for (let i = 0; i < old.length; i += 50) {
     const batch = old.slice(i, i + 50)
@@ -770,19 +775,19 @@ async function prune($: $T) {
 
 const winPath = (p: string) => p.replace(/\//g, '\\')
 
-// ---------- the praetorium program ----------
+// ---------- the principia program ----------
 
 // The window, importer and diff run as one small program, downloaded only when asked.
 function installOffer(): string {
-  return 'The Praetorium window needs its program: one file (60 to 115 MB depending on your system) from github.com/' + RELEASE.repo +
-    ' releases, checked against its SHA-256 before it runs, kept in ~/.claude/praetorium/bin. Nothing else is installed. Run /ledger install to download it.'
+  return 'The Principia window needs its program: one file (60 to 115 MB depending on your system) from github.com/' + RELEASE.repo +
+    ' releases, checked against its SHA-256 before it runs, kept in ~/.claude/principia/bin. Nothing else is installed. Run /ledger install to download it.'
 }
 
 async function install($: $T): Promise<string> {
   const arch = firstLine((await run($, plat.os === 'windows' ? ['cmd', '/c', 'echo', '%PROCESSOR_ARCHITECTURE%'] : ['uname', '-m']))?.stdout)
   const name = programName(plat.os, arch)
   const want = RELEASE.sha256[name]
-  if (!want) return `No build of Praetorium ${RELEASE.version} for this machine (${name}).`
+  if (!want) return `No build of Principia ${RELEASE.version} for this machine (${name}).`
   const dir = join(plat.data, 'bin')
   const bin = join(dir, `${RELEASE.version}-${name}`)
   const part = `${bin}.part`
@@ -806,7 +811,7 @@ async function install($: $T): Promise<string> {
   // An open window switches to the new program by itself.
   await $.fs.write(join(plat.data, 'viewer.next'), bin)
   void prune($).catch(() => undefined)
-  return `Installed Praetorium ${RELEASE.version} (${name}, checksum verified). /ledger window opens it.`
+  return `Installed Principia ${RELEASE.version} (${name}, checksum verified). /ledger window opens it.`
 }
 
 // ---------- themes ----------
@@ -841,11 +846,11 @@ async function themeCommand($: $T, arg: string): Promise<string> {
   return `Theme set to ${verb}.`
 }
 
-// ---------- sessions from before Praetorium: their transcripts ----------
+// ---------- sessions from before Principia: their transcripts ----------
 
 // Transcripts hold everything a person typed, so nothing reads them without a yes,
 // asked once in a dialog and remembered ('allowed' | 'declined').
-const CONSENT_PANE = 'praetorium-consent'
+const CONSENT_PANE = 'principia-consent'
 
 type PastSession = {
   sessionId: string
@@ -867,7 +872,7 @@ async function projectsDir($: $T): Promise<string> {
 
 // Runs viewer/import.mjs, which streams the transcripts and keeps only what the ledger needs.
 async function readPast($: $T, args: string[]): Promise<PastSession[]> {
-  if (!plat.runner.length) throw new Error('the Praetorium program is not installed (/ledger install)')
+  if (!plat.runner.length) throw new Error('the Principia program is not installed (/ledger install)')
   // The result comes back on stdout (well under its 4 MiB limit: prompts, replies and
   // tool names only), so the import leaves no file behind.
   const r = await $.process.run(programArgs('import', await projectsDir($), '-', ...args), { timeoutMs: 120_000 })
@@ -950,7 +955,7 @@ async function importSessions($: $T, days: number, again = false): Promise<strin
   return [done, notDone].filter(Boolean).join(' ')
 }
 
-// A session reopened after Praetorium was installed starts from its own transcript.
+// A session reopened after Principia was installed starts from its own transcript.
 async function backfillSelf($: $T) {
   if (!(await transcriptsAllowed($)) || (await read($, reqsA)).length) return
   try {
@@ -987,11 +992,11 @@ async function importCommand($: $T, arg: string): Promise<string> {
   }
   if (arg === 'revoke') {
     await $.store.set('transcripts', 'declined')
-    return 'Praetorium will not read transcripts. Sessions already imported stay in the ledger.'
+    return 'Principia will not read transcripts. Sessions already imported stay in the ledger.'
   }
   if (!(await transcriptsAllowed($))) {
-    await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
-    return 'Praetorium needs your permission to read existing transcripts: answer in the dialog, or run /ledger import allow.'
+    await $.ui.open({ id: CONSENT_PANE, title: 'Principia', focus: true })
+    return 'Principia needs your permission to read existing transcripts: answer in the dialog, or run /ledger import allow.'
   }
   const again = /\brefresh\b/.test(arg)
   const days = Math.min(30, Math.max(1, Number.parseInt(arg.replace(/\D+/g, ' '), 10) || 2))
@@ -1008,12 +1013,12 @@ async function rejudgeOnce($: $T) {
   const said = await refreshCommand($)
   if (said.startsWith('Could not')) return // tried again next time the session opens
   await $.store.set(key, RELEASE.version)
-  if (!said.includes('already matches')) await $.ui.toast(`Praetorium: ${said}`)
+  if (!said.includes('already matches')) await $.ui.toast(`Principia: ${said}`)
 }
 
 async function refreshCommand($: $T): Promise<string> {
   if (!(await transcriptsAllowed($))) {
-    await $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
+    await $.ui.open({ id: CONSENT_PANE, title: 'Principia', focus: true })
     return 'Refreshing reads this session\'s transcript, which needs your permission: answer in the dialog, or run /ledger import allow.'
   }
   const reqs = await read($, reqsA)
@@ -1190,7 +1195,7 @@ export const register: Register = on => {
         $.clock.after(0, () => void backfillSelf($))
       }
     }
-    if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Praetorium', focus: true })
+    if ((await $.store.get('transcripts').catch(() => undefined)) === undefined) void $.ui.open({ id: CONSENT_PANE, title: 'Principia', focus: true })
     $.clock.after(5000, () => void autoImport($).catch(() => undefined))
     $.clock.after(8000, () => void rejudgeOnce($).catch(() => undefined))
     $.clock.every(700, () => {
@@ -1345,9 +1350,9 @@ export const register: Register = on => {
     }
     return (
       <Box flexDirection="column" padding={1} gap={1} backgroundColor={p.bg}>
-        <Text color={p.text} bold>Show sessions you started before Praetorium?</Text>
+        <Text color={p.text} bold>Show sessions you started before Principia?</Text>
         <Text color={p.text2}>
-          Praetorium can read the Claude Code transcripts on this computer (~/.claude/projects) from the last 2 days, so earlier sessions appear in the ledger, and keep doing so as new sessions start. The window also reads each session's title from its transcript.
+          Principia can read the Claude Code transcripts on this computer (~/.claude/projects) from the last 2 days, so earlier sessions appear in the ledger, and keep doing so as new sessions start. The window also reads each session's title from its transcript.
         </Text>
         <Text color={p.text2}>
           It reads your prompts, the names and file paths of the agent's tool calls, and its replies. File contents are not kept. Each session costs one Claude Haiku call to list its requirements. Nothing is written to the transcripts.

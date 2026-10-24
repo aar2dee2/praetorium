@@ -1,5 +1,5 @@
-// The ledger in its own terminal window, for every Claude Code session running Praetorium.
-// Run by the praetorium program (cli.mjs): reads each session's state-<id>.json from the
+// The ledger in its own terminal window, for every Claude Code session running Principia.
+// Run by the principia program (cli.mjs): reads each session's state-<id>.json from the
 // data folder and sends what you do back through that session's inbox-<id>.jsonl.
 
 import fs from 'node:fs'
@@ -11,9 +11,9 @@ import { spawn, spawnSync } from 'node:child_process'
 import { DEFAULT_THEME, palette } from '../hooks/theme.ts'
 import { REQ_FILTERS, filterReqs, gapOf, isSecretPath, isVerified, linker } from '../hooks/work.ts'
 
-const G = globalThis.PRAETORIUM ?? { args: process.argv.slice(2), self: [process.execPath, process.argv[1]], isCompiled: false }
+const G = globalThis.PRINCIPIA ?? { args: process.argv.slice(2), self: [process.execPath, process.argv[1]], isCompiled: false }
 const HOME = os.homedir()
-const dir = G.args[0] || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'praetorium')
+const dir = G.args[0] || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'principia')
 const projectsDir = G.args[2] || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'projects')
 let cur = G.args[1] ?? ''
 
@@ -29,12 +29,12 @@ const MONTH = 30 * 24 * 3600 * 1000
 
 const NEXT = path.join(dir, 'viewer.next') // a newly installed program the window should move to
 
-if (!process.env.PRAETORIUM_VIEWER_CHILD) {
+if (!process.env.PRINCIPIA_VIEWER_CHILD) {
   let select = cur
   let self = G.self
   for (;;) {
     const r = spawnSync(self[0], [...self.slice(1), 'view', dir, select, projectsDir], {
-      stdio: 'inherit', env: { ...process.env, PRAETORIUM_VIEWER_CHILD: '1' },
+      stdio: 'inherit', env: { ...process.env, PRINCIPIA_VIEWER_CHILD: '1' },
     })
     if (r.status !== RELOAD) process.exit(r.status ?? 0)
     try { select = fs.readFileSync(path.join(dir, 'viewer.select'), 'utf8').trim() } catch { /* keep */ }
@@ -242,7 +242,7 @@ function sessionLines(w) {
     }
     lines.push([])
   }
-  if (!list.length) lines.push(...wrap('No sessions are running Praetorium yet.', w, P.text3))
+  if (!list.length) lines.push(...wrap('No sessions are running Principia yet.', w, P.text3))
   return lines
 }
 
@@ -457,7 +457,7 @@ function render() {
   const st = sessions.get(cur)?.state
   const state = !st ? seg('no session', P.text3) : st.imported ? seg('imported · read-only until reopened', P.warn)
     : !isLive(st) ? seg('not running · nothing can be sent', P.warn) : st.isWorking ? seg('● working', P.active) : seg('○ idle', P.done)
-  const rows = [{ line: [seg(' Praetorium - Your Claude Code Dashboard ', P.text, undefined, true), seg('  '), seg(` ${st ? `${projectOf(st)} · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
+  const rows = [{ line: [seg(' Principia - Your Claude Code Dashboard ', P.text, undefined, true), seg('  '), seg(` ${st ? `${projectOf(st)} · ${nameOf(st)}` : ''}`, P.text2), seg('   '), state,
     seg(`   ${L.length} requirements · `, P.text3), seg(`${verified} verified`, P.done)] }, { line: [] }]
   const cols = layout(W)
   const hasSignalsCol = cols.some(([c]) => c === 'signals')
@@ -556,7 +556,7 @@ function openUrl(url) {
 
 function openDiff(ev, here) {
   // Never read or show a file that may hold secrets, not even as a diff.
-  if (isSecretPath(ev.file)) return say(`${path.basename(ev.file)} may hold secrets, so Praetorium doesn't open its diff.`)
+  if (isSecretPath(ev.file)) return say(`${path.basename(ev.file)} may hold secrets, so Principia doesn't open its diff.`)
   const snap = path.join(S.snapDir ?? os.tmpdir(), `${ev.id}-${path.basename(ev.file)}`)
   const hasSnap = fs.existsSync(snap)
   if (!here) {

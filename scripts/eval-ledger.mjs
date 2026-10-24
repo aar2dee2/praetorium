@@ -1,4 +1,4 @@
-// Measures how accurate a rebuilt ledger is on a real session: builds it the way Praetorium
+// Measures how accurate a rebuilt ledger is on a real session: builds it the way Principia
 // does (whole conversation, in order), then has a stronger model judge every requirement
 // against the full conversation and list anything missed.
 //

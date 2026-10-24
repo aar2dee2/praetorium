@@ -75,8 +75,8 @@ describe('safety', () => {
       expect(isSecretPath(f)).toBe(false)
   })
   test('Windows runs the program directly, with an unquoted one-word title', async () => {
-    const l = launchCommand('windows', { id: 'cmd', name: 'Command Prompt' }, ['C:/Users/A B/praetorium.exe', 'view', 'C:/Users/A B/.claude/praetorium'], 'Praetorium', 'C:/Users/A B')
-    expect(l?.cmd).toEqual(['cmd', '/c', 'start', 'Praetorium', 'C:/Users/A B/praetorium.exe', 'view', 'C:/Users/A B/.claude/praetorium'])
+    const l = launchCommand('windows', { id: 'cmd', name: 'Command Prompt' }, ['C:/Users/A B/principia.exe', 'view', 'C:/Users/A B/.claude/principia'], 'Principia', 'C:/Users/A B')
+    expect(l?.cmd).toEqual(['cmd', '/c', 'start', 'Principia', 'C:/Users/A B/principia.exe', 'view', 'C:/Users/A B/.claude/principia'])
   })
 })
 

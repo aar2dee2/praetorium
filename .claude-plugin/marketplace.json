@@ -1,16 +1,16 @@
 {
-  "name": "praetorium",
+  "name": "principia",
   "owner": {
     "name": "aar2dee2"
   },
   "plugins": [
     {
-      "name": "praetorium",
+      "name": "principia",
       "source": "./",
       "description": "Requirements ledger, activity stream and completion audit for Claude Code"
     }
   ],
   "metadata": {
-    "description": "Praetorium: requirements ledger, activity stream and completion audit for Claude Code"
+    "description": "Principia: requirements ledger, activity stream and completion audit for Claude Code"
   }
 }

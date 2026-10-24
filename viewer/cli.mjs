@@ -1,17 +1,17 @@
-// The praetorium program: the ledger window, the transcript importer and the diff view.
+// The principia program: the ledger window, the transcript importer and the diff view.
 // Built into one standalone file per platform with `bun build --compile` (scripts/build.ts),
 // so nothing else needs installing; while developing, `bun viewer/cli.mjs …` runs the source.
 //
-//   praetorium view <data dir> [session id] [projects dir]
-//   praetorium import <projects dir> <out.json> [--days N] [--max N] [--skip ids] [--session id]
-//   praetorium diff <snapshot or ''> <file>
+//   principia view <data dir> [session id] [projects dir]
+//   principia import <projects dir> <out.json> [--days N] [--max N] [--skip ids] [--session id]
+//   principia diff <snapshot or ''> <file>
 
 const [cmd, ...args] = process.argv.slice(2)
 
 // How to start this same program again (the window restarts itself on update).
 const script = process.argv[1] ?? ''
 const isCompiled = script.startsWith('/$bunfs') || script.startsWith('B:\\~BUN') || !/\.(m?js|ts)$/.test(script)
-globalThis.PRAETORIUM = { args, self: isCompiled ? [process.execPath] : [process.execPath, script], isCompiled }
+globalThis.PRINCIPIA = { args, self: isCompiled ? [process.execPath] : [process.execPath, script], isCompiled }
 
 if (cmd === 'view') {
   await import('./ledger-view.mjs')
@@ -24,8 +24,8 @@ if (cmd === 'view') {
   process.exit(0)
 } else if (cmd === '--version' || cmd === 'version') {
   // Set by scripts/build.ts from plugin.json; "dev" when run from source.
-  console.log(`praetorium ${typeof PRAETORIUM_VERSION === 'string' ? PRAETORIUM_VERSION : 'dev'}`)
+  console.log(`principia ${typeof PRINCIPIA_VERSION === 'string' ? PRINCIPIA_VERSION : 'dev'}`)
 } else {
-  console.error('usage: praetorium view <data dir> [session] [projects dir] | import … | diff <snapshot> <file>')
+  console.error('usage: principia view <data dir> [session] [projects dir] | import … | diff <snapshot> <file>')
   process.exit(2)
 }

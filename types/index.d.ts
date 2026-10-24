@@ -128,7 +128,7 @@ export type Theme = {
 
 declare module 'claude-code' {
   interface PluginState {
-    praetorium: {
+    principia: {
       reqs: Requirement[]
       events: ActivityEvent[]
       replies: Reply[]

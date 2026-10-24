@@ -20,7 +20,7 @@ function gitDiff(snap, file) {
 export function showDiff(snap, file) {
   // The program can be run directly too: the same rule as the window and the plugin.
   if (isSecretPath(file)) {
-    process.stdout.write(`${path.basename(file)} may hold secrets, so Praetorium doesn't show its diff.\n`)
+    process.stdout.write(`${path.basename(file)} may hold secrets, so Principia doesn't show its diff.\n`)
     return
   }
   const text = gitDiff(snap, file)
